@@ -15,8 +15,7 @@ USER_RULES_PATH = Path("data/user_rules.csv")
 
 CORES = [
     "#22C55E", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6",
-    "#06B6D4", "#EC4899", "#84CC16", "#F97316", "#14B8A6",
-    "#EAB308", "#64748B", "#A855F7", "#10B981", "#F43F5E"
+    "#06B6D4", "#EC4899", "#84CC16", "#F97316", "#14B8A6"
 ]
 
 CORES_CATEGORIAS = {
@@ -135,8 +134,8 @@ def preparar_gastos_por_mes(df):
 
     if coluna_data is not None:
         base[coluna_data] = pd.to_datetime(base[coluna_data], errors="coerce", dayfirst=True)
-        base["Mês"] = base[coluna_data].dt.strftime("%m/%Y")
-        base = base.dropna(subset=["Mês"])
+        base = base.dropna(subset=[coluna_data])
+        base["Mês"] = base[coluna_data].dt.to_period("M").astype(str)
     else:
         base["Mês"] = "Período analisado"
 
@@ -145,11 +144,23 @@ def preparar_gastos_por_mes(df):
     resultado["Valor"] = pd.to_numeric(resultado["Valor"], errors="coerce").fillna(0)
     resultado = resultado[resultado["Valor"] > 0]
 
-    try:
-        resultado["_ordem"] = pd.to_datetime("01/" + resultado["Mês"], dayfirst=True, errors="coerce")
-        resultado = resultado.sort_values("_ordem").drop(columns=["_ordem"])
-    except Exception:
-        resultado = resultado.sort_values("Mês")
+    if resultado.empty:
+        return pd.DataFrame(columns=["Mês", "Valor"])
+
+    resultado["_ordem"] = pd.to_datetime(resultado["Mês"] + "-01", errors="coerce")
+    resultado = resultado.dropna(subset=["_ordem"])
+    resultado = resultado.sort_values("_ordem")
+
+    total = resultado["Valor"].sum()
+    corte_minimo = max(total * 0.01, 100)
+
+    if len(resultado) > 6:
+        resultado = resultado[resultado["Valor"] >= corte_minimo]
+
+    resultado = resultado.tail(6)
+
+    resultado["Mês"] = resultado["_ordem"].dt.strftime("%m/%Y")
+    resultado = resultado.drop(columns=["_ordem"])
 
     return resultado
 
@@ -179,13 +190,11 @@ def criar_resumo_cliente(gasto_total, df_grafico, parcelas_futuras, score):
         percentual = (row["Valor"] / total) * 100 if total else 0
         linhas.append(f"{row['Categoria']} ({percentual:.1f}%)")
 
-    saude = classificar_score(score)
-
     return (
         f"Você gastou {moeda(gasto_total)} no período analisado. "
         f"As maiores despesas foram {', '.join(linhas)}. "
         f"As parcelas futuras somam {moeda(parcelas_futuras)}. "
-        f"Sua saúde financeira está classificada como {saude}. "
+        f"Sua saúde financeira está classificada como {classificar_score(score)}. "
         f"A principal prioridade é observar a categoria {df_grafico.iloc[0]['Categoria']}."
     )
 
@@ -592,37 +601,36 @@ if pagina == "🏠 Resumo":
             "#EF4444"
         )
 
-    st.markdown('<div class="section-title">Evolução mensal dos gastos</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Tendência recente dos gastos</div>', unsafe_allow_html=True)
 
     if df_meses.empty:
-        st.warning("Não foi possível identificar os gastos por mês.")
+        st.warning("Não foi possível identificar os gastos mensais relevantes.")
     else:
         df_meses = df_meses.copy()
         df_meses["Valor_formatado"] = df_meses["Valor"].apply(moeda)
 
-        fig_mes = px.bar(
+        fig_mes = px.line(
             df_meses,
             x="Mês",
             y="Valor",
             text="Valor_formatado",
-            color="Mês",
-            color_discrete_sequence=CORES
+            markers=True
         )
 
         fig_mes.update_traces(
-            texttemplate="%{text}",
-            textposition="outside",
-            marker_line_width=0
+            line=dict(width=4, color="#22C55E"),
+            marker=dict(size=11, color="#22C55E"),
+            textposition="top center"
         )
 
         fig_mes.update_layout(
             height=360,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white", size=12),
+            font=dict(color="white", size=13),
             xaxis_title="",
             yaxis_title="",
-            margin=dict(t=20, b=60, l=35, r=25),
+            margin=dict(t=25, b=60, l=35, r=35),
             showlegend=False
         )
 
@@ -717,7 +725,6 @@ elif pagina == "📊 Gastos":
             )
 
     st.markdown('<div class="section-title">Top estabelecimentos</div>', unsafe_allow_html=True)
-
     merchants_df = top_merchants(df_base, top=10).round(2)
     st.dataframe(merchants_df, use_container_width=True)
 
