@@ -9,10 +9,6 @@ from engine.parcelamento_engine import processar_parcelamentos, resumo_parcelame
 from engine.diagnostico_engine import gerar_diagnostico, gerar_relatorio_simples
 from engine.recommendation_engine import gerar_recomendacoes, gerar_plano_acao
 
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
-
 st.set_page_config(
     page_title="Orçamento Inteligente",
     page_icon="💰",
@@ -28,10 +24,6 @@ st.markdown(
     """
 )
 
-# ============================================================
-# MENU
-# ============================================================
-
 st.sidebar.title("Menu")
 
 pagina = st.sidebar.radio(
@@ -41,7 +33,8 @@ pagina = st.sidebar.radio(
         "Gastos",
         "Parcelamentos",
         "Diagnóstico",
-        "Plano de Ação"
+        "Plano de Ação",
+        "Debug PDF"
     ]
 )
 
@@ -60,10 +53,6 @@ senha_pdf = st.sidebar.text_input(
 
 analisar = st.sidebar.button("Analisar")
 
-# ============================================================
-# PROCESSAMENTO
-# ============================================================
-
 if analisar:
 
     if not pdfs:
@@ -81,15 +70,10 @@ if analisar:
             )
 
             df_transacoes = processar_transacoes(documentos)
-
             df_base = processar_merchants(df_transacoes)
-
             df_base = processar_categorias(df_base)
-
             resumo_categoria = resumo_categorias(df_base)
-
             df_parcelamentos = processar_parcelamentos(df_base)
-
             resumo_parcelas = resumo_parcelamentos(df_parcelamentos)
 
             diagnostico = gerar_diagnostico(
@@ -103,6 +87,8 @@ if analisar:
                 df_parcelamentos
             )
 
+            st.session_state["documentos"] = documentos
+            st.session_state["df_transacoes"] = df_transacoes
             st.session_state["df_base"] = df_base
             st.session_state["resumo_categoria"] = resumo_categoria
             st.session_state["df_parcelamentos"] = df_parcelamentos
@@ -112,25 +98,19 @@ if analisar:
 
         st.success("Análise concluída com sucesso.")
 
-# ============================================================
-# DADOS
-# ============================================================
-
 dados_prontos = "diagnostico" in st.session_state
 
 if not dados_prontos:
     st.info("Envie suas faturas e clique em Analisar para gerar o diagnóstico.")
     st.stop()
 
+documentos = st.session_state["documentos"]
+df_transacoes = st.session_state["df_transacoes"]
 df_base = st.session_state["df_base"]
 resumo_categoria = st.session_state["resumo_categoria"]
 df_parcelamentos = st.session_state["df_parcelamentos"]
 diagnostico = st.session_state["diagnostico"]
 recomendacoes = st.session_state["recomendacoes"]
-
-# ============================================================
-# DASHBOARD
-# ============================================================
 
 if pagina == "Dashboard":
 
@@ -146,9 +126,8 @@ if pagina == "Dashboard":
     st.subheader("Gastos por Categoria")
     st.dataframe(resumo_categoria.round(2), use_container_width=True)
 
-# ============================================================
-# GASTOS
-# ============================================================
+    st.subheader("Prévia das Transações Encontradas")
+    st.dataframe(df_transacoes.head(20), use_container_width=True)
 
 elif pagina == "Gastos":
 
@@ -160,32 +139,50 @@ elif pagina == "Gastos":
     st.subheader("Top Estabelecimentos")
     st.dataframe(top_merchants(df_base, top=30).round(2), use_container_width=True)
 
-# ============================================================
-# PARCELAMENTOS
-# ============================================================
+    st.subheader("Transações")
+    st.dataframe(df_base.head(100), use_container_width=True)
 
 elif pagina == "Parcelamentos":
 
     st.header("Compras Parceladas")
-
     st.dataframe(df_parcelamentos.round(2), use_container_width=True)
-
-# ============================================================
-# DIAGNÓSTICO
-# ============================================================
 
 elif pagina == "Diagnóstico":
 
     st.header("Diagnóstico Financeiro")
-
     st.text(gerar_relatorio_simples(diagnostico))
-
-# ============================================================
-# PLANO DE AÇÃO
-# ============================================================
 
 elif pagina == "Plano de Ação":
 
     st.header("Plano de Ação")
-
     st.text(gerar_plano_acao(recomendacoes))
+
+elif pagina == "Debug PDF":
+
+    st.header("Debug PDF")
+
+    st.warning(
+        "Esta tela é temporária. Ela serve para descobrir como o texto da fatura está sendo extraído."
+    )
+
+    st.subheader("Documentos processados")
+
+    for doc in documentos:
+        st.markdown(f"### Arquivo: {doc.get('arquivo', '-')}")
+        st.write("Status:", doc.get("status", "-"))
+        st.write("Erro:", doc.get("erro", "-"))
+        st.write("Páginas:", doc.get("paginas", 0))
+
+        texto = doc.get("texto", "")
+
+        st.write("Quantidade de caracteres extraídos:", len(texto))
+
+        st.text_area(
+            f"Texto extraído de {doc.get('arquivo', '-')}",
+            texto[:8000],
+            height=350
+        )
+
+    st.subheader("Transações encontradas pelo motor")
+    st.write("Quantidade:", len(df_transacoes))
+    st.dataframe(df_transacoes.head(50), use_container_width=True)
