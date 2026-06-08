@@ -11,13 +11,6 @@ from engine.parcelamento_engine import processar_parcelamentos, resumo_parcelame
 from engine.diagnostico_engine import gerar_diagnostico, gerar_relatorio_simples
 from engine.recommendation_engine import gerar_recomendacoes, gerar_plano_acao
 
-from engine.compromissos_engine import (
-    analisar_compromissos,
-    gerar_resumo_executivo_compromissos,
-    gerar_top_compromissos,
-    gerar_texto_capacidade
-)
-
 USER_RULES_PATH = Path("data/user_rules.csv")
 
 CORES = [
@@ -164,18 +157,14 @@ def classificar_score(score):
     except Exception:
         score = 0
 
-    if score >= 85:
+    if score >= 80:
         return "🟢 Excelente"
-    if score >= 70:
-        return "🟢 Boa"
-    if score >= 50:
-        return "🟡 Moderada"
-    if score >= 30:
-        return "🟠 Atenção"
-    return "🔴 Crítica"
+    if score >= 60:
+        return "🟡 Atenção"
+    return "🔴 Crítico"
 
 
-def criar_resumo_cliente(gasto_total, df_grafico, diagnostico):
+def criar_resumo_cliente(gasto_total, df_grafico, parcelas_futuras, score):
     if df_grafico.empty:
         return "Envie suas faturas para gerar um resumo financeiro."
 
@@ -190,9 +179,9 @@ def criar_resumo_cliente(gasto_total, df_grafico, diagnostico):
     return (
         f"Você gastou {moeda(gasto_total)} no período analisado. "
         f"As maiores despesas foram {', '.join(linhas)}. "
-        f"As parcelas futuras somam {moeda(diagnostico['parcelas_futuras'])}. "
-        f"Sua saúde financeira está classificada como {classificar_score(diagnostico['score'])}. "
-        f"{diagnostico.get('acao_prioritaria', '')}"
+        f"As parcelas futuras somam {moeda(parcelas_futuras)}. "
+        f"Sua saúde financeira está classificada como {classificar_score(score)}. "
+        f"A principal prioridade é observar a categoria {df_grafico.iloc[0]['Categoria']}."
     )
 
 
@@ -256,15 +245,88 @@ def montar_tabela_faturas_processadas(documentos, df_faturas):
         linhas.append({
             "Fatura": arquivo,
             "Status": doc.get("status", "-"),
-            "Qualidade": doc.get("qualidade", "-"),
             "Páginas": doc.get("paginas", 0),
-            "Caracteres": doc.get("caracteres", 0),
             "Valor detectado": moeda(valor_detectado),
-            "Alerta": doc.get("alerta", "-"),
             "Erro": doc.get("erro", "-")
         })
 
     return pd.DataFrame(linhas)
+
+
+def resumo_parcelamento_cliente(df_parcelamentos, parcelas_futuras, gasto_total):
+    qtd_compras = 0
+    total_identificado = 0
+    maior_compra_nome = "Não identificada"
+    maior_compra_valor = 0
+
+    if df_parcelamentos is not None and not df_parcelamentos.empty:
+        qtd_compras = len(df_parcelamentos)
+        valor_col = escolher_coluna_valor(df_parcelamentos)
+
+        if valor_col is not None:
+            tmp = df_parcelamentos.copy()
+            tmp[valor_col] = pd.to_numeric(tmp[valor_col], errors="coerce").fillna(0)
+            total_identificado = tmp[valor_col].sum()
+
+            maior = tmp.sort_values(valor_col, ascending=False).head(1)
+
+            if not maior.empty:
+                maior_compra_valor = float(maior.iloc[0][valor_col])
+
+                possiveis_nomes = [
+                    "merchant", "estabelecimento", "descricao",
+                    "descrição", "compra", "categoria"
+                ]
+
+                for col in maior.columns:
+                    if str(col).lower() in possiveis_nomes:
+                        maior_compra_nome = str(maior.iloc[0][col])
+                        break
+
+                if maior_compra_nome == "Não identificada":
+                    maior_compra_nome = "Maior compra parcelada"
+
+    percentual_comprometido = (parcelas_futuras / gasto_total) * 100 if gasto_total else 0
+
+    if percentual_comprometido <= 10:
+        semaforo = "🟢 Saudável"
+        mensagem = "Seu nível de parcelas futuras está controlado."
+        cor = "#22C55E"
+    elif percentual_comprometido <= 25:
+        semaforo = "🟡 Atenção"
+        mensagem = "Seu parcelamento exige atenção antes de assumir novas compras."
+        cor = "#F59E0B"
+    else:
+        semaforo = "🔴 Alto risco"
+        mensagem = "Evite novas parcelas até reduzir o compromisso atual."
+        cor = "#EF4444"
+
+    return {
+        "qtd_compras": qtd_compras,
+        "total_identificado": total_identificado,
+        "maior_compra_nome": maior_compra_nome,
+        "maior_compra_valor": maior_compra_valor,
+        "percentual_comprometido": percentual_comprometido,
+        "semaforo": semaforo,
+        "mensagem": mensagem,
+        "cor": cor
+    }
+
+
+def top_parcelamentos(df_parcelamentos, top=5):
+    if df_parcelamentos is None or df_parcelamentos.empty:
+        return pd.DataFrame()
+
+    df = df_parcelamentos.copy()
+    valor_col = escolher_coluna_valor(df)
+
+    if valor_col is None:
+        return df.head(top)
+
+    df[valor_col] = pd.to_numeric(df[valor_col], errors="coerce").fillna(0)
+    df = df.sort_values(valor_col, ascending=False).head(top)
+
+    return df
 
 
 def score_bar(score):
@@ -607,22 +669,20 @@ if pagina == "⚙️ Auditoria":
     for doc in documentos:
         st.markdown(f"### Arquivo: {doc.get('arquivo', '-')}")
         st.write("Status:", doc.get("status", "-"))
-        st.write("Qualidade:", doc.get("qualidade", "-"))
-        st.write("Alerta:", doc.get("alerta", "-"))
         st.write("Erro:", doc.get("erro", "-"))
         st.write("Páginas:", doc.get("paginas", 0))
-        st.write("Caracteres:", doc.get("caracteres", 0))
 
         texto = doc.get("texto", "")
+        st.write("Quantidade de caracteres extraídos:", len(texto))
 
         st.text_area(
             f"Texto extraído de {doc.get('arquivo', '-')}",
-            texto[:10000],
+            texto[:8000],
             height=350
         )
 
     st.subheader("Transações encontradas")
-    st.dataframe(df_transacoes.head(80), use_container_width=True)
+    st.dataframe(df_transacoes.head(50), use_container_width=True)
     st.stop()
 
 
@@ -649,11 +709,7 @@ maior_categoria = diagnostico["categoria_principal"]
 score = diagnostico["score"]
 parcelas_futuras = diagnostico["parcelas_futuras"]
 valor_outros, percentual_outros = calcular_outros(df_base, gasto_total)
-
-compromissos = analisar_compromissos(
-    df_parcelamentos=df_parcelamentos,
-    gasto_total=gasto_total
-)
+resumo_parcelas_cliente = resumo_parcelamento_cliente(df_parcelamentos, parcelas_futuras, gasto_total)
 
 
 if pagina == "🏠 Resumo":
@@ -665,13 +721,13 @@ if pagina == "🏠 Resumo":
     with c2:
         card_html("Maior concentração", maior_categoria, "Categoria principal", "#F59E0B")
     with c3:
-        card_html("Parcelas futuras", moeda(compromissos["valor_restante_total"]), compromissos["nivel_risco"], "#EF4444")
+        card_html("Parcelas futuras", moeda(parcelas_futuras), "Compromisso já assumido", "#EF4444")
     with c4:
         card_html("Saúde financeira", classificar_score(score), f"Score {score}/100", "#22C55E")
 
     st.markdown('<div class="section-title">Resumo do mês</div>', unsafe_allow_html=True)
 
-    resumo_cliente = criar_resumo_cliente(gasto_total, df_grafico, diagnostico)
+    resumo_cliente = criar_resumo_cliente(gasto_total, df_grafico, parcelas_futuras, score)
     insight_card("📌 O que aconteceu com seu dinheiro", resumo_cliente, "#22C55E")
 
     st.markdown('<div class="section-title">Alertas principais</div>', unsafe_allow_html=True)
@@ -697,9 +753,9 @@ if pagina == "🏠 Resumo":
 
     with a3:
         insight_card(
-            "💳 Compromissos futuros",
-            gerar_resumo_executivo_compromissos(compromissos),
-            "#EF4444" if compromissos["classificacao"] in ["ALTO", "CRÍTICO"] else "#22C55E"
+            "💳 Parcelamentos",
+            f"{resumo_parcelas_cliente['semaforo']}. Você possui {moeda(parcelas_futuras)} em compromissos futuros.",
+            resumo_parcelas_cliente["cor"]
         )
 
     st.markdown('<div class="section-title">Evolução das faturas analisadas</div>', unsafe_allow_html=True)
@@ -839,37 +895,56 @@ elif pagina == "💳 Compromissos":
 
     insight_card(
         "🧠 Leitura do parcelamento",
-        gerar_resumo_executivo_compromissos(compromissos),
-        "#EF4444" if compromissos["classificacao"] in ["ALTO", "CRÍTICO"] else "#22C55E"
+        (
+            f"Foram identificadas {resumo_parcelas_cliente['qtd_compras']} compras parceladas. "
+            f"Você possui {moeda(parcelas_futuras)} em compromissos futuros. "
+            f"O comprometimento equivale a {resumo_parcelas_cliente['percentual_comprometido']:.1f}% "
+            f"do total analisado. Classificação: {resumo_parcelas_cliente['semaforo']}. "
+            f"{resumo_parcelas_cliente['mensagem']}"
+        ),
+        resumo_parcelas_cliente["cor"]
     )
 
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        card_html("Valor ainda comprometido", moeda(compromissos["valor_restante_total"]), "Futuro já assumido", "#EF4444")
+        card_html("Valor ainda comprometido", moeda(parcelas_futuras), "Futuro já assumido", "#EF4444")
     with c2:
-        card_html("Impacto mensal", moeda(compromissos["impacto_mensal"]), "Soma das parcelas mensais", "#F59E0B")
+        card_html("Compras parceladas", resumo_parcelas_cliente["qtd_compras"], "Quantidade detectada", "#3B82F6")
     with c3:
-        card_html("Comprometimento", f"{compromissos['comprometimento_percentual']:.1f}%", compromissos["nivel_risco"], "#EF4444")
+        card_html("Comprometimento", f"{resumo_parcelas_cliente['percentual_comprometido']:.1f}%", resumo_parcelas_cliente["semaforo"], resumo_parcelas_cliente["cor"])
     with c4:
-        card_html("Maior compromisso", moeda(compromissos["maior_valor_restante"]), compromissos["maior_compromisso"], "#3B82F6")
+        card_html("Maior compromisso", moeda(resumo_parcelas_cliente["maior_compra_valor"]), resumo_parcelas_cliente["maior_compra_nome"], "#F59E0B")
 
     st.markdown('<div class="section-title">Capacidade para novas parcelas</div>', unsafe_allow_html=True)
 
-    insight_card(
-        compromissos["nivel_risco"],
-        gerar_texto_capacidade(compromissos),
-        "#EF4444" if compromissos["classificacao"] in ["ALTO", "CRÍTICO"] else "#22C55E"
-    )
+    if resumo_parcelas_cliente["percentual_comprometido"] <= 10:
+        insight_card(
+            "🟢 Situação saudável",
+            "Seu nível de parcelamento está controlado. Ainda assim, evite assumir novas parcelas sem antes definir uma meta clara de economia.",
+            "#22C55E"
+        )
+    elif resumo_parcelas_cliente["percentual_comprometido"] <= 25:
+        insight_card(
+            "🟡 Atenção antes de parcelar novamente",
+            "Seu nível de parcelamento já merece cuidado. Antes de assumir nova parcela, revise as compras atuais e priorize reduzir compromissos.",
+            "#F59E0B"
+        )
+    else:
+        insight_card(
+            "🔴 Evite novas parcelas",
+            "Seu comprometimento futuro está elevado. A prioridade deve ser reduzir parcelas existentes antes de criar novas obrigações.",
+            "#EF4444"
+        )
 
     st.markdown('<div class="section-title">5 maiores compromissos parcelados</div>', unsafe_allow_html=True)
 
-    top_compromissos = gerar_top_compromissos(df_parcelamentos, top=5)
+    top_parc = top_parcelamentos(df_parcelamentos, top=5)
 
-    if top_compromissos.empty:
-        st.info("Nenhuma compra parcelada em aberto foi identificada.")
+    if top_parc.empty:
+        st.info("Nenhuma compra parcelada foi identificada.")
     else:
-        st.dataframe(top_compromissos.round(2), use_container_width=True, hide_index=True)
+        st.dataframe(top_parc.round(2), use_container_width=True)
 
     st.markdown('<div class="section-title">Faturas processadas com valor detectado</div>', unsafe_allow_html=True)
 
@@ -889,14 +964,10 @@ elif pagina == "🧠 Diagnóstico IA":
     st.header("Diagnóstico financeiro")
 
     st.markdown('<div class="section-title">Leitura simples</div>', unsafe_allow_html=True)
-    insight_card("🧠 Diagnóstico automático", criar_resumo_cliente(gasto_total, df_grafico, diagnostico), "#22C55E")
+    insight_card("🧠 Diagnóstico automático", criar_resumo_cliente(gasto_total, df_grafico, parcelas_futuras, score), "#22C55E")
 
     st.markdown('<div class="section-title">Score financeiro visual</div>', unsafe_allow_html=True)
     score_bar(score)
-
-    st.markdown('<div class="section-title">Alerta principal</div>', unsafe_allow_html=True)
-    insight_card("⚠️ Alerta", diagnostico.get("alerta_principal", "-"), "#F59E0B")
-    insight_card("🎯 Ação prioritária", diagnostico.get("acao_prioritaria", "-"), "#22C55E")
 
     st.markdown('<div class="section-title">Relatório técnico</div>', unsafe_allow_html=True)
     st.text(gerar_relatorio_simples(diagnostico))
@@ -908,13 +979,7 @@ elif pagina == "🎯 Plano de Economia":
 
     st.markdown('<div class="section-title">O que fazer agora</div>', unsafe_allow_html=True)
 
-    if compromissos["classificacao"] in ["ALTO", "CRÍTICO"]:
-        insight_card(
-            "1. Prioridade máxima: reduzir compromissos",
-            f"Você possui {moeda(compromissos['valor_restante_total'])} em parcelas futuras. Antes de pensar em novas compras, reduza os maiores compromissos.",
-            "#EF4444"
-        )
-    elif not df_grafico.empty:
+    if not df_grafico.empty:
         principal = df_grafico.iloc[0]["Categoria"]
         valor_principal = df_grafico.iloc[0]["Valor"]
         economia_estimada = valor_principal * 0.10
@@ -925,17 +990,17 @@ elif pagina == "🎯 Plano de Economia":
             "#F59E0B"
         )
 
-    insight_card(
-        "2. Revisar parcelamentos",
-        f"Compromissos futuros: {moeda(compromissos['valor_restante_total'])}. Impacto mensal estimado: {moeda(compromissos['impacto_mensal'])}.",
-        "#F59E0B"
-    )
+        insight_card(
+            "2. Revisar parcelamentos",
+            f"Você possui {moeda(parcelas_futuras)} em parcelas futuras. Evite criar novas parcelas antes de reduzir esse compromisso.",
+            "#EF4444"
+        )
 
-    insight_card(
-        "3. Ensinar o robô",
-        f"A categoria Outros está em {percentual_outros:.1f}%. Ensine o robô para melhorar a precisão do diagnóstico.",
-        "#3B82F6"
-    )
+        insight_card(
+            "3. Ensinar o robô",
+            f"A categoria Outros está em {percentual_outros:.1f}%. Ensine o robô para melhorar a precisão do diagnóstico.",
+            "#3B82F6"
+        )
 
     st.markdown('<div class="section-title">Plano gerado pelo sistema</div>', unsafe_allow_html=True)
     st.text(gerar_plano_acao(recomendacoes))
