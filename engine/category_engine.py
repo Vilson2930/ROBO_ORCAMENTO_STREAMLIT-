@@ -20,6 +20,7 @@ CATEGORIAS = {
 
     # COMBUSTÍVEL
     "POSTO": "Combustível",
+    "AUTO POSTO": "Combustível",
     "COMBUSTIVEL": "Combustível",
     "COMB": "Combustível",
     "IPIRANGA": "Combustível",
@@ -28,6 +29,13 @@ CATEGORIAS = {
     "CALED": "Combustível",
     "STAWS": "Combustível",
     "INDIO": "Combustível",
+    "ROSETTI": "Combustível",
+    "FERLIN": "Combustível",
+    "REDEGUAPODEPOSTOS": "Combustível",
+    "GUAPO": "Combustível",
+    "PANDA AUTO": "Combustível",
+    "PRA FRENTE": "Combustível",
+    "IBEMA": "Combustível",
 
     # SUPERMERCADO
     "SUPERMERCADO": "Supermercado",
@@ -35,13 +43,19 @@ CATEGORIAS = {
     "MERCADO": "Supermercado",
     "ATACADAO": "Supermercado",
     "CRUZ E CRUZ": "Supermercado",
+    "REDE PARTEKA DE SUPERM": "Supermercado",
     "ALIMENTOS": "Supermercado",
     "ARMAZEM": "Supermercado",
     "ESPECIARIAS": "Supermercado",
+    "EMPORIO": "Supermercado",
+    "GIRASSOL": "Supermercado",
     "PANIF": "Supermercado",
+    "PANIFICADORA": "Supermercado",
+    "CONFEIT": "Supermercado",
 
     # ALIMENTAÇÃO FORA DE CASA
     "RESTAURANTE": "Alimentação fora de casa",
+    "RESTAUR": "Alimentação fora de casa",
     "REST ": "Alimentação fora de casa",
     "LANCH": "Alimentação fora de casa",
     "PIZZ": "Alimentação fora de casa",
@@ -52,8 +66,15 @@ CATEGORIAS = {
     "MERUZA": "Alimentação fora de casa",
     "PORTO UBA": "Alimentação fora de casa",
     "GARAGEM": "Alimentação fora de casa",
-    "PARTEKA": "Alimentação fora de casa",
     "TZ RESTAURANTE": "Alimentação fora de casa",
+    "AROMA": "Alimentação fora de casa",
+    "BOI NA BRASA": "Alimentação fora de casa",
+    "GOCOFFEE": "Alimentação fora de casa",
+    "COFFEE": "Alimentação fora de casa",
+    "PICOLE": "Alimentação fora de casa",
+    "BONTA": "Alimentação fora de casa",
+    "D D PRENSADO": "Alimentação fora de casa",
+    "NOVA PARADA HOTEL REST": "Alimentação fora de casa",
 
     # SAÚDE
     "FARMACIA": "Saúde",
@@ -68,11 +89,13 @@ CATEGORIAS = {
     "HEVILLYN": "Saúde",
     "BATEL": "Saúde",
 
-    # TECNOLOGIA
+    # TECNOLOGIA / ASSINATURAS DIGITAIS
     "TECNOLOGIA": "Tecnologia",
     "INFO": "Tecnologia",
     "ELETRONIC": "Tecnologia",
     "JE TECNOLOGIA": "Tecnologia",
+    "AMAZON DIGITAL": "Tecnologia",
+    "AMAZON": "Tecnologia",
 
     # CASA / UTILIDADES
     "HOME CENTER": "Casa / Utilidades",
@@ -81,26 +104,38 @@ CATEGORIAS = {
     "SCHULZE": "Casa / Utilidades",
     "PONTO DAS CAPAS": "Casa / Utilidades",
     "LAVO": "Casa / Utilidades",
+    "ENCAPE": "Casa / Utilidades",
+    "GMAD": "Casa / Utilidades",
+    "BORTOLANZA": "Casa / Utilidades",
 
     # VESTUÁRIO / COMPRAS
     "PRIVALIA": "Vestuário / Compras",
+    "PRI*PRIVALIA": "Vestuário / Compras",
     "ZZOPER": "Vestuário / Compras",
     "HAVAN": "Vestuário / Compras",
     "MODAS": "Vestuário / Compras",
-    "CONFECC": "Vestuário / Compras",
     "ZARPELLON": "Vestuário / Compras",
-    "YASMIN COSMETICOS": "Vestuário / Compras",
+    "SAPATARIA": "Vestuário / Compras",
+    "NEWTON": "Vestuário / Compras",
+    "CONFECC": "Vestuário / Compras",
+    "COSMETICOS": "Vestuário / Compras",
+    "DESTAK": "Vestuário / Compras",
+    "YASMIN": "Vestuário / Compras",
 
-    # SERVIÇOS / PAGAMENTOS
+    # SERVIÇOS / PAGAMENTOS PESSOAIS
     "MAXISCARD": "Serviços / Pagamentos pessoais",
     "MAXISCAR": "Serviços / Pagamentos pessoais",
     "BARBOSA": "Serviços / Pagamentos pessoais",
+    "BARBEARIA": "Serviços / Pagamentos pessoais",
+    "CAMARGO": "Serviços / Pagamentos pessoais",
     "BONFIM": "Serviços / Pagamentos pessoais",
     "JOHN": "Serviços / Pagamentos pessoais",
     "ALEXANDRE": "Serviços / Pagamentos pessoais",
     "LUCIANO": "Serviços / Pagamentos pessoais",
     "NELSON": "Serviços / Pagamentos pessoais",
     "AYUB": "Serviços / Pagamentos pessoais",
+    "AUGUSTO": "Serviços / Pagamentos pessoais",
+    "MARCUSWILLIAN": "Serviços / Pagamentos pessoais",
 
     # INTERMEDIADORES
     "MERCADO PAGO": "Pagamentos / Intermediadores",
@@ -113,8 +148,12 @@ CATEGORIAS = {
     # LAZER / EVENTOS
     "EVENTO": "Lazer / Eventos",
     "PSYBAR": "Lazer / Eventos",
+    "PSY BAR": "Lazer / Eventos",
     "MALTE": "Lazer / Eventos",
     "CONVENIENCIA": "Lazer / Eventos",
+    "HELP CONVENIENCIA": "Lazer / Eventos",
+    "PALOMASDRINKS": "Lazer / Eventos",
+    "DRINKS": "Lazer / Eventos",
     "ALLE": "Lazer / Eventos",
 
     # VIAGEM / HOSPEDAGEM
