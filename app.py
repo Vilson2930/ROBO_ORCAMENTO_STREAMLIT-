@@ -127,7 +127,6 @@ def preparar_resumo_para_grafico(resumo):
 
 def preparar_evolucao_faturas(df):
     base = df.copy()
-
     coluna_fatura = None
 
     for col in base.columns:
@@ -553,11 +552,20 @@ if analisar:
             df_parcelamentos = processar_parcelamentos(df_base)
             resumo_parcelas = resumo_parcelamentos(df_parcelamentos)
 
-            diagnostico = gerar_diagnostico(resumo_categoria, df_parcelamentos)
+            diagnostico_base = gerar_diagnostico(
+                resumo_categoria,
+                df_parcelamentos
+            )
 
             resultado_compromissos = analisar_compromissos(
                 df_parcelamentos=df_parcelamentos,
-                gasto_total=diagnostico["gasto_total"]
+                gasto_total=diagnostico_base["gasto_total"]
+            )
+
+            diagnostico = gerar_diagnostico(
+                resumo_categoria,
+                df_parcelamentos,
+                resultado_compromissos=resultado_compromissos
             )
 
             recomendacoes = gerar_recomendacoes(
@@ -645,7 +653,6 @@ resumo_categoria = st.session_state["resumo_categoria"]
 df_parcelamentos = st.session_state["df_parcelamentos"]
 diagnostico = st.session_state["diagnostico"]
 recomendacoes = st.session_state["recomendacoes"]
-qtd_pdfs = st.session_state.get("qtd_pdfs", 0)
 
 resultado_compromissos = st.session_state.get(
     "resultado_compromissos",
