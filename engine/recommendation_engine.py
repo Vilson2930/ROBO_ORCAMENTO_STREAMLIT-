@@ -3,30 +3,27 @@
 # ORÇAMENTO INTELIGENTE
 # ============================================================
 
-# ============================================================
-# GERAR RECOMENDAÇÕES
-# ============================================================
-
-def gerar_recomendacoes(
-    resumo_categoria,
-    diagnostico,
-    df_parcelamentos
-):
+def gerar_recomendacoes(resumo_categoria, diagnostico, df_parcelamentos):
 
     recomendacoes = []
 
-    # --------------------------------------------------------
-    # TOP CATEGORIAS
-    # --------------------------------------------------------
+    if resumo_categoria is None or resumo_categoria.empty:
+        return [
+            {
+                "tipo": "SEM_DADOS",
+                "titulo": "Dados insuficientes",
+                "descricao": "Não foi possível gerar recomendações com os dados atuais."
+            }
+        ]
 
-    top_categorias = (
-        resumo_categoria
-        .sort_values(
-            "valor_total",
-            ascending=False
-        )
-        .head(5)
-    )
+    if "valor_total" not in resumo_categoria.columns:
+        return [
+            {
+                "tipo": "ERRO",
+                "titulo": "Erro na leitura das categorias",
+                "descricao": "O sistema não encontrou a coluna valor_total no resumo de categorias."
+            }
+        ]
 
     # --------------------------------------------------------
     # COMBUSTÍVEL
@@ -40,23 +37,14 @@ def gerar_recomendacoes(
         ]
 
         if percentual > 20:
-
             recomendacoes.append({
-
-                "tipo": "ATENCAO",
-
-                "titulo":
-                    "Combustível elevado",
-
-                "descricao":
-                    f"Combustível representa "
-                    f"{percentual:.2f}% "
-                    f"dos gastos."
-
+                "tipo": "ATENÇÃO",
+                "titulo": "Combustível elevado",
+                "descricao": f"Combustível representa {percentual:.2f}% dos gastos."
             })
 
     # --------------------------------------------------------
-    # ALIMENTAÇÃO
+    # ALIMENTAÇÃO FORA
     # --------------------------------------------------------
 
     if "Alimentação fora de casa" in resumo_categoria.index:
@@ -67,19 +55,10 @@ def gerar_recomendacoes(
         ]
 
         if percentual > 10:
-
             recomendacoes.append({
-
-                "tipo": "ATENCAO",
-
-                "titulo":
-                    "Alimentação fora de casa",
-
-                "descricao":
-                    f"Representa "
-                    f"{percentual:.2f}% "
-                    f"dos gastos."
-
+                "tipo": "ATENÇÃO",
+                "titulo": "Alimentação fora de casa elevada",
+                "descricao": f"Representa {percentual:.2f}% dos gastos."
             })
 
     # --------------------------------------------------------
@@ -94,125 +73,75 @@ def gerar_recomendacoes(
         ]
 
         if percentual > 10:
-
             recomendacoes.append({
-
-                "tipo": "ATENCAO",
-
-                "titulo":
-                    "Compras acima do ideal",
-
-                "descricao":
-                    f"Representa "
-                    f"{percentual:.2f}% "
-                    f"dos gastos."
-
+                "tipo": "ATENÇÃO",
+                "titulo": "Compras acima do ideal",
+                "descricao": f"Representa {percentual:.2f}% dos gastos."
             })
 
     # --------------------------------------------------------
     # PARCELAMENTOS
     # --------------------------------------------------------
 
-    abertos = df_parcelamentos[
-        df_parcelamentos["status"]
-        == "ABERTO"
-    ]
+    if df_parcelamentos is not None and not df_parcelamentos.empty:
+        if "status" in df_parcelamentos.columns and "valor_restante" in df_parcelamentos.columns:
 
-    if len(abertos) > 0:
+            abertos = df_parcelamentos[
+                df_parcelamentos["status"] == "ABERTO"
+            ]
 
-        maior = (
-            abertos
-            .sort_values(
-                "valor_restante",
-                ascending=False
-            )
-            .iloc[0]
-        )
+            if len(abertos) > 0:
+                maior = abertos.sort_values(
+                    "valor_restante",
+                    ascending=False
+                ).iloc[0]
 
-        recomendacoes.append({
-
-            "tipo": "PARCELAMENTO",
-
-            "titulo":
-                "Maior compromisso futuro",
-
-            "descricao":
-                f"{maior['compra']} "
-                f"(R$ {maior['valor_restante']:,.2f})"
-
-        })
+                recomendacoes.append({
+                    "tipo": "PARCELAMENTO",
+                    "titulo": "Maior compromisso futuro",
+                    "descricao": f"{maior['compra']} - R$ {maior['valor_restante']:,.2f}"
+                })
 
     # --------------------------------------------------------
     # SCORE
     # --------------------------------------------------------
 
-    score = diagnostico["score"]
+    score = diagnostico.get("score", 0)
 
     if score >= 85:
-
         recomendacoes.append({
-
             "tipo": "POSITIVO",
-
-            "titulo":
-                "Boa organização financeira",
-
-            "descricao":
-                "Os indicadores mostram "
-                "boa gestão dos gastos."
-
+            "titulo": "Boa organização financeira",
+            "descricao": "Os indicadores mostram boa gestão dos gastos."
         })
 
     elif score >= 70:
-
         recomendacoes.append({
-
             "tipo": "MODERADO",
-
-            "titulo":
-                "Há espaço para melhorias",
-
-            "descricao":
-                "Pequenos ajustes podem "
-                "aumentar sua eficiência."
-
+            "titulo": "Há espaço para melhorias",
+            "descricao": "Pequenos ajustes podem aumentar sua eficiência financeira."
         })
 
     else:
-
         recomendacoes.append({
-
             "tipo": "RISCO",
-
-            "titulo":
-                "Atenção ao orçamento",
-
-            "descricao":
-                "Existem sinais que merecem "
-                "acompanhamento."
-
+            "titulo": "Atenção ao orçamento",
+            "descricao": "Existem sinais que merecem acompanhamento."
         })
 
     return recomendacoes
 
 
-# ============================================================
-# RELATÓRIO EXECUTIVO
-# ============================================================
+def gerar_plano_acao(recomendacoes):
 
-def gerar_plano_acao(
-    recomendacoes
-):
+    if not recomendacoes:
+        return "Nenhuma recomendação gerada."
 
-    plano = []
+    linhas = []
 
     for item in recomendacoes:
-
-        plano.append(
-
-            f"• {item['titulo']} - "
-            f"{item['descricao']}"
-
+        linhas.append(
+            f"• {item['titulo']} - {item['descricao']}"
         )
 
-    return "\n".join(plano)
+    return "\n".join(linhas)
