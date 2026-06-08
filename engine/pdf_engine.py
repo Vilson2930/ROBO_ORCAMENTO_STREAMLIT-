@@ -1,89 +1,81 @@
 # ============================================================
 # PDF ENGINE
 # ORÇAMENTO INTELIGENTE
+# Compatível com Streamlit file_uploader
 # ============================================================
 
-from pathlib import Path
 from pypdf import PdfReader
 
-# ============================================================
-# LOCALIZAR PDFs
-# ============================================================
 
-def localizar_pdfs(pasta_uploads="data/uploads"):
-
-    pasta = Path(pasta_uploads)
-
-    if not pasta.exists():
-        return []
-
-    pdfs = sorted(pasta.glob("*.pdf"))
-
-    return pdfs
-
-
-# ============================================================
-# EXTRAIR TEXTO DE UM PDF
-# ============================================================
-
-def extrair_texto_pdf(pdf_path, senha=None):
-
-    texto = ""
+def extrair_texto_pdf(uploaded_file, senha=None):
+    """
+    Lê um PDF enviado pelo Streamlit e retorna texto extraído.
+    """
 
     try:
-
-        reader = PdfReader(str(pdf_path))
+        reader = PdfReader(uploaded_file)
 
         if reader.is_encrypted:
+            if not senha:
+                return {
+                    "arquivo": uploaded_file.name,
+                    "status": "erro",
+                    "erro": "PDF protegido. Senha não informada.",
+                    "texto": "",
+                    "paginas": 0
+                }
 
-            if senha:
-                reader.decrypt(senha)
+            resultado = reader.decrypt(senha)
+
+            if resultado == 0:
+                return {
+                    "arquivo": uploaded_file.name,
+                    "status": "erro",
+                    "erro": "Senha incorreta ou PDF não desbloqueado.",
+                    "texto": "",
+                    "paginas": 0
+                }
+
+        texto_total = ""
 
         for pagina in reader.pages:
+            texto = pagina.extract_text() or ""
+            texto_total += texto + "\n"
 
-            conteudo = pagina.extract_text()
-
-            if conteudo:
-                texto += conteudo + "\n"
+        return {
+            "arquivo": uploaded_file.name,
+            "status": "ok",
+            "erro": "",
+            "texto": texto_total,
+            "paginas": len(reader.pages)
+        }
 
     except Exception as erro:
+        return {
+            "arquivo": getattr(uploaded_file, "name", "arquivo_desconhecido"),
+            "status": "erro",
+            "erro": str(erro),
+            "texto": "",
+            "paginas": 0
+        }
 
-        print(f"Erro ao ler {pdf_path}: {erro}")
 
-    return texto
-
-
-# ============================================================
-# PROCESSAR TODOS OS PDFs
-# ============================================================
-
-def processar_pdfs(pasta_uploads="data/uploads", senha=None):
-
-    pdfs = localizar_pdfs(pasta_uploads)
+def processar_pdfs(uploaded_files=None, senha=None):
+    """
+    Processa múltiplos PDFs enviados pelo Streamlit.
+    """
 
     documentos = []
 
-    for pdf in pdfs:
+    if not uploaded_files:
+        return documentos
 
-        texto = extrair_texto_pdf(pdf, senha)
+    for uploaded_file in uploaded_files:
+        resultado = extrair_texto_pdf(
+            uploaded_file=uploaded_file,
+            senha=senha
+        )
 
-        documentos.append({
-            "arquivo": pdf.name,
-            "texto": texto
-        })
+        documentos.append(resultado)
 
     return documentos
-
-
-# ============================================================
-# RESUMO EXECUTIVO
-# ============================================================
-
-def resumo_pdf_engine(pasta_uploads="data/uploads"):
-
-    pdfs = localizar_pdfs(pasta_uploads)
-
-    return {
-        "quantidade_pdfs": len(pdfs),
-        "arquivos": [pdf.name for pdf in pdfs]
-    }
