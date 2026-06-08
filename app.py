@@ -70,6 +70,31 @@ def salvar_regra_usuario(merchant, categoria):
     return True
 
 
+def escolher_coluna_valor(df):
+    numericas = df.select_dtypes(include="number").columns.tolist()
+
+    if not numericas:
+        return None
+
+    prioridade = [
+        "valor",
+        "gasto",
+        "total",
+        "soma",
+        "amount",
+        "preco",
+        "preço"
+    ]
+
+    for palavra in prioridade:
+        for col in numericas:
+            nome = str(col).lower()
+            if palavra in nome and "percent" not in nome and "%" not in nome and "score" not in nome:
+                return col
+
+    return max(numericas, key=lambda c: pd.to_numeric(df[c], errors="coerce").fillna(0).sum())
+
+
 def preparar_resumo_para_grafico(resumo):
     df = resumo.copy()
 
@@ -77,65 +102,69 @@ def preparar_resumo_para_grafico(resumo):
         df = df.reset_index()
 
     categoria_col = None
-    valor_col = None
 
     for col in df.columns:
         col_lower = str(col).lower()
-
         if "categoria" in col_lower or col_lower == "index":
             categoria_col = col
-
-        if "valor" in col_lower or "total" in col_lower or "gasto" in col_lower:
-            valor_col = col
+            break
 
     if categoria_col is None:
         categoria_col = df.columns[0]
 
+    valor_col = escolher_coluna_valor(df)
+
     if valor_col is None:
-        valor_col = df.select_dtypes(include="number").columns[0]
+        return pd.DataFrame(columns=["Categoria", "Valor"])
 
     df = df[[categoria_col, valor_col]].copy()
     df.columns = ["Categoria", "Valor"]
+
+    df["Valor"] = pd.to_numeric(df["Valor"], errors="coerce").fillna(0)
     df = df[df["Valor"] > 0]
     df = df.sort_values("Valor", ascending=False)
 
     return df
 
 
-def preparar_gastos_por_fatura(df):
+def preparar_gastos_por_mes(df):
     base = df.copy()
 
-    coluna_fatura = None
-    coluna_valor = None
+    coluna_data = None
 
     for col in base.columns:
         col_lower = str(col).lower()
+        if "data" in col_lower or "date" in col_lower:
+            coluna_data = col
+            break
 
-        if "arquivo" in col_lower or "fatura" in col_lower or "pdf" in col_lower:
-            coluna_fatura = col
+    valor_col = escolher_coluna_valor(base)
 
-        if "valor" in col_lower or "total" in col_lower or "gasto" in col_lower:
-            coluna_valor = col
+    if valor_col is None:
+        return pd.DataFrame(columns=["Mês", "Valor"])
 
-    if coluna_valor is None:
-        numeros = base.select_dtypes(include="number").columns
-        if len(numeros) == 0:
-            return pd.DataFrame(columns=["Fatura", "Valor"])
-        coluna_valor = numeros[0]
-
-    if coluna_fatura is None:
-        base["Fatura"] = "Fatura consolidada"
-        coluna_fatura = "Fatura"
+    if coluna_data is not None:
+        base[coluna_data] = pd.to_datetime(base[coluna_data], errors="coerce", dayfirst=True)
+        base["Mês"] = base[coluna_data].dt.strftime("%m/%Y")
+        base = base.dropna(subset=["Mês"])
+    else:
+        base["Mês"] = "Período analisado"
 
     resultado = (
-        base.groupby(coluna_fatura)[coluna_valor]
+        base.groupby("Mês")[valor_col]
         .sum()
         .reset_index()
-        .sort_values(coluna_valor, ascending=False)
     )
 
-    resultado.columns = ["Fatura", "Valor"]
+    resultado.columns = ["Mês", "Valor"]
+    resultado["Valor"] = pd.to_numeric(resultado["Valor"], errors="coerce").fillna(0)
     resultado = resultado[resultado["Valor"] > 0]
+
+    try:
+        resultado["_ordem"] = pd.to_datetime("01/" + resultado["Mês"], dayfirst=True, errors="coerce")
+        resultado = resultado.sort_values("_ordem").drop(columns=["_ordem"])
+    except Exception:
+        resultado = resultado.sort_values("Mês")
 
     return resultado
 
@@ -437,7 +466,7 @@ qtd_pdfs = st.session_state.get("qtd_pdfs", 0)
 if pagina == "🏠 Resumo":
 
     df_grafico = preparar_resumo_para_grafico(resumo_categoria)
-    df_faturas = preparar_gastos_por_fatura(df_base)
+    df_meses = preparar_gastos_por_mes(df_base)
 
     gasto_total = diagnostico["gasto_total"]
     maior_categoria = diagnostico["categoria_principal"]
@@ -485,20 +514,21 @@ if pagina == "🏠 Resumo":
         st.plotly_chart(fig_pizza, use_container_width=True)
 
     with col_barra:
-        top_categorias = df_grafico.head(8).sort_values("Valor", ascending=True)
+        top_categorias = df_grafico.head(8).sort_values("Valor", ascending=True).copy()
+        top_categorias["Valor_formatado"] = top_categorias["Valor"].apply(moeda)
 
         fig_cat = px.bar(
             top_categorias,
             x="Valor",
             y="Categoria",
             orientation="h",
-            text="Valor",
+            text="Valor_formatado",
             color="Categoria",
             color_discrete_map=CORES_CATEGORIAS
         )
 
         fig_cat.update_traces(
-            texttemplate="R$ %{text:,.2f}",
+            texttemplate="%{text}",
             textposition="outside",
             marker_line_width=0
         )
@@ -510,7 +540,7 @@ if pagina == "🏠 Resumo":
             font=dict(color="white", size=13),
             xaxis_title="",
             yaxis_title="",
-            margin=dict(t=10, b=30, l=10, r=85),
+            margin=dict(t=10, b=30, l=10, r=105),
             showlegend=False
         )
 
@@ -563,29 +593,30 @@ if pagina == "🏠 Resumo":
             """
         )
 
-    st.markdown('<div class="section-title">Gasto total por fatura</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Evolução mensal das faturas</div>', unsafe_allow_html=True)
 
-    if df_faturas.empty:
-        st.warning("Não foi possível identificar as despesas por fatura.")
+    if df_meses.empty:
+        st.warning("Não foi possível identificar as despesas por mês.")
     else:
-        df_faturas = df_faturas.sort_values("Valor", ascending=False)
+        df_meses = df_meses.copy()
+        df_meses["Valor_formatado"] = df_meses["Valor"].apply(moeda)
 
-        fig_fat = px.bar(
-            df_faturas,
-            x="Fatura",
+        fig_mes = px.bar(
+            df_meses,
+            x="Mês",
             y="Valor",
-            text="Valor",
-            color="Fatura",
+            text="Valor_formatado",
+            color="Mês",
             color_discrete_sequence=CORES
         )
 
-        fig_fat.update_traces(
-            texttemplate="R$ %{text:,.2f}",
+        fig_mes.update_traces(
+            texttemplate="%{text}",
             textposition="outside",
             marker_line_width=0
         )
 
-        fig_fat.update_layout(
+        fig_mes.update_layout(
             height=330,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
@@ -596,10 +627,10 @@ if pagina == "🏠 Resumo":
             showlegend=False
         )
 
-        fig_fat.update_xaxes(showgrid=False)
-        fig_fat.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+        fig_mes.update_xaxes(showgrid=False)
+        fig_mes.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
 
-        st.plotly_chart(fig_fat, use_container_width=True)
+        st.plotly_chart(fig_mes, use_container_width=True)
 
     st.markdown('<div class="section-title">Tabela por categoria</div>', unsafe_allow_html=True)
 
