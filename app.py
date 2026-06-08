@@ -140,6 +140,19 @@ def preparar_gastos_por_fatura(df):
     return resultado
 
 
+def classificar_score(score):
+    try:
+        score = float(score)
+    except Exception:
+        score = 0
+
+    if score >= 80:
+        return "🟢 Excelente"
+    if score >= 60:
+        return "🟡 Atenção"
+    return "🔴 Crítico"
+
+
 st.set_page_config(
     page_title="Orçamento Inteligente",
     page_icon="💰",
@@ -150,7 +163,7 @@ st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1.2rem;
+        padding-top: 1rem;
         padding-bottom: 2rem;
         max-width: 1450px;
     }
@@ -162,68 +175,62 @@ st.markdown(
 
     .hero-box {
         background: linear-gradient(135deg, #0F172A, #1E293B);
-        padding: 30px;
+        padding: 28px;
         border-radius: 22px;
         border: 1px solid rgba(255,255,255,0.10);
-        margin-bottom: 26px;
+        margin-bottom: 24px;
     }
 
     .hero-title {
-        font-size: 42px;
+        font-size: 40px;
         font-weight: 900;
         color: #FFFFFF;
         margin-bottom: 8px;
     }
 
     .hero-subtitle {
-        font-size: 18px;
+        font-size: 17px;
         color: #CBD5E1;
         line-height: 1.55;
     }
 
     .section-title {
-        font-size: 26px;
+        font-size: 25px;
         font-weight: 900;
         color: white;
-        margin-top: 26px;
-        margin-bottom: 16px;
+        margin-top: 24px;
+        margin-bottom: 14px;
     }
 
     div[data-testid="stMetric"] {
         background: linear-gradient(135deg, #FFFFFF, #F8FAFC);
-        padding: 20px;
+        padding: 18px;
         border-radius: 18px;
         border: 1px solid #E5E7EB;
         box-shadow: 0px 8px 24px rgba(0,0,0,0.10);
+        min-height: 116px;
     }
 
     div[data-testid="stMetricValue"] {
-        font-size: 27px;
+        font-size: 24px;
         color: #111827;
-        font-weight: 800;
+        font-weight: 900;
+        white-space: normal;
     }
 
     div[data-testid="stMetricLabel"] {
         color: #64748B;
-        font-size: 15px;
-        font-weight: 700;
+        font-size: 14px;
+        font-weight: 800;
     }
 
     .stButton > button {
         border-radius: 12px;
         height: 45px;
-        font-weight: 800;
+        font-weight: 900;
         background: linear-gradient(135deg, #22C55E, #16A34A);
         color: white;
         border: none;
-    }
-
-    .upload-card {
-        background-color: #111827;
-        padding: 15px;
-        border-radius: 16px;
-        border: 1px solid rgba(255,255,255,0.08);
-        margin-bottom: 12px;
     }
 
     .status-card {
@@ -231,28 +238,73 @@ st.markdown(
         padding: 14px;
         border-radius: 14px;
         color: #BBF7D0;
-        font-weight: 800;
+        font-weight: 900;
         margin-top: 12px;
+    }
+
+    div[role="radiogroup"] label {
+        background: transparent;
+        padding: 13px 14px;
+        border-radius: 13px;
+        margin-bottom: 7px;
+        cursor: pointer;
+        transition: 0.2s;
+        border: 1px solid transparent;
+    }
+
+    div[role="radiogroup"] label:hover {
+        background-color: rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    div[role="radiogroup"] label[data-checked="true"] {
+        background: linear-gradient(135deg, #22C55E, #2563EB);
+        color: white;
+        font-weight: 900;
+        border: 1px solid rgba(255,255,255,0.18);
+    }
+
+    div[role="radiogroup"] label > div:first-child {
+        display: none;
+    }
+
+    .sidebar-title {
+        font-size: 24px;
+        font-weight: 900;
+        color: white;
+        margin-bottom: 0px;
+    }
+
+    .sidebar-subtitle {
+        font-size: 13px;
+        color: #94A3B8;
+        margin-bottom: 22px;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-st.sidebar.markdown("## 💰 Orçamento Inteligente")
-st.sidebar.caption("Consultor financeiro automatizado")
+st.sidebar.markdown(
+    """
+    <div class="sidebar-title">💰 Orçamento</div>
+    <div class="sidebar-subtitle">Consultor financeiro automatizado</div>
+    """,
+    unsafe_allow_html=True
+)
 
 pagina = st.sidebar.radio(
     "Menu",
     [
-        "🏠 Dashboard",
+        "🏠 Resumo",
         "💸 Gastos",
         "💳 Parcelamentos",
         "🧠 Diagnóstico",
-        "🎯 Plano de Ação",
-        "🤖 Aprendizado do Robô",
-        "⚙️ Debug PDF"
-    ]
+        "🎯 Plano Financeiro",
+        "🤖 Aprendizado",
+        "⚙️ Auditoria PDF"
+    ],
+    label_visibility="collapsed"
 )
 
 st.sidebar.markdown("---")
@@ -325,8 +377,8 @@ st.markdown(
     <div class="hero-box">
         <div class="hero-title">Orçamento Inteligente</div>
         <div class="hero-subtitle">
-            Envie suas faturas, veja para onde seu dinheiro está indo,
-            acompanhe parcelamentos e transforme gastos em decisões financeiras.
+            Veja para onde seu dinheiro está indo, acompanhe parcelamentos,
+            identifique excessos e transforme gastos em decisões financeiras.
         </div>
     </div>
     """,
@@ -334,9 +386,9 @@ st.markdown(
 )
 
 
-if pagina == "⚙️ Debug PDF":
+if pagina == "⚙️ Auditoria PDF":
 
-    st.header("Debug PDF")
+    st.header("Auditoria PDF")
 
     if "documentos" not in st.session_state:
         st.info("Envie as faturas, digite a senha e clique em Analisar.")
@@ -382,7 +434,7 @@ recomendacoes = st.session_state["recomendacoes"]
 qtd_pdfs = st.session_state.get("qtd_pdfs", 0)
 
 
-if pagina == "🏠 Dashboard":
+if pagina == "🏠 Resumo":
 
     df_grafico = preparar_resumo_para_grafico(resumo_categoria)
     df_faturas = preparar_gastos_por_fatura(df_base)
@@ -392,24 +444,24 @@ if pagina == "🏠 Dashboard":
     score = diagnostico["score"]
     parcelas_futuras = diagnostico["parcelas_futuras"]
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5 = st.columns([1.45, 0.9, 1.25, 1.15, 1.25])
 
     col1.metric("Gasto total", moeda(gasto_total))
     col2.metric("Faturas", qtd_pdfs)
     col3.metric("Parcelas futuras", moeda(parcelas_futuras))
-    col4.metric("Score financeiro", f"{score}/100")
+    col4.metric("Saúde financeira", classificar_score(score))
     col5.metric("Maior gasto", maior_categoria)
 
     st.markdown('<div class="section-title">Distribuição das despesas</div>', unsafe_allow_html=True)
 
-    col_pizza, col_barra = st.columns([1, 1.25])
+    col_pizza, col_barra = st.columns([1, 1])
 
     with col_pizza:
         fig_pizza = px.pie(
             df_grafico,
             names="Categoria",
             values="Valor",
-            hole=0.48,
+            hole=0.50,
             color="Categoria",
             color_discrete_map=CORES_CATEGORIAS
         )
@@ -417,25 +469,17 @@ if pagina == "🏠 Dashboard":
         fig_pizza.update_traces(
             textposition="inside",
             textinfo="percent",
-            textfont_size=15,
+            textfont_size=14,
             pull=[0.04 if i == 0 else 0 for i in range(len(df_grafico))]
         )
 
         fig_pizza.update_layout(
-            height=520,
+            height=440,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white", size=14),
-            showlegend=True,
-            legend=dict(
-                orientation="h",
-                yanchor="bottom",
-                y=-0.25,
-                xanchor="center",
-                x=0.5,
-                font=dict(size=11)
-            ),
-            margin=dict(t=20, b=120, l=20, r=20)
+            font=dict(color="white", size=13),
+            showlegend=False,
+            margin=dict(t=10, b=10, l=10, r=10)
         )
 
         st.plotly_chart(fig_pizza, use_container_width=True)
@@ -460,13 +504,13 @@ if pagina == "🏠 Dashboard":
         )
 
         fig_cat.update_layout(
-            height=520,
+            height=440,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white", size=14),
+            font=dict(color="white", size=13),
             xaxis_title="",
             yaxis_title="",
-            margin=dict(t=20, b=40, l=20, r=95),
+            margin=dict(t=10, b=30, l=10, r=85),
             showlegend=False
         )
 
@@ -542,13 +586,13 @@ if pagina == "🏠 Dashboard":
         )
 
         fig_fat.update_layout(
-            height=380,
+            height=330,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white", size=13),
+            font=dict(color="white", size=12),
             xaxis_title="",
             yaxis_title="",
-            margin=dict(t=20, b=70, l=40, r=30),
+            margin=dict(t=10, b=65, l=35, r=25),
             showlegend=False
         )
 
@@ -591,13 +635,13 @@ elif pagina == "🧠 Diagnóstico":
     st.text(gerar_relatorio_simples(diagnostico))
 
 
-elif pagina == "🎯 Plano de Ação":
+elif pagina == "🎯 Plano Financeiro":
 
-    st.header("Plano de ação")
+    st.header("Plano financeiro")
     st.text(gerar_plano_acao(recomendacoes))
 
 
-elif pagina == "🤖 Aprendizado do Robô":
+elif pagina == "🤖 Aprendizado":
 
     st.header("Aprendizado do robô")
 
