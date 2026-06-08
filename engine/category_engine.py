@@ -21,43 +21,80 @@ def classificar_categoria(merchant):
 
     m = normalizar_texto(merchant)
 
-    if any(x in m for x in ["POSTO", "COMBUSTIVEL", "COMB", "STAWS", "ROSETTI", "CALED", "INDIO", "GUAPO"]):
+    # ========================================================
+    # COMBUSTÍVEL
+    # ========================================================
+
+    if any(x in m for x in [
+        "POSTO", "AUTO POSTO", "COMBUSTIVEL", "COMB", "STAWS",
+        "ROSETTI", "CALED", "INDIO", "GUAPO", "PANDA AUTO",
+        "IBEMA", "FERLIN", "PRA FRENTE"
+    ]):
         return "Combustível"
+
+    # ========================================================
+    # SUPERMERCADO
+    # ========================================================
 
     if any(x in m for x in [
         "SUPERPAO", "SUPERMERCADO", "CRUZ E CRUZ", "ALIMENTOS",
-        "EMPORIO GIRASSOL", "CASA DE ESPECIARIAS", "PMV COMERCIO DE ALIMEN",
-        "REDE PARTEKA DE SUPERM"
+        "EMPORIO GIRASSOL", "CASA DE ESPECIARIAS",
+        "PMV COMERCIO DE ALIMEN", "REDE PARTEKA DE SUPERM"
     ]):
         return "Supermercado"
 
+    # ========================================================
+    # ALIMENTAÇÃO FORA DE CASA
+    # ========================================================
+
     if any(x in m for x in [
-        "RESTAURANTE", "RESTAUR", "REST", "MERUZA", "TZ RESTAURANTE",
-        "GARAGEM", "CANTINA", "FEIJOADA", "PARTEKA", "ARMAZEM DO MALTE",
-        "SABOR IRRESISTIVEL", "PANIF", "FAMILIA SOUZA",
-        "DOM HENRIQUE", "GASTRONOM", "ALLE CONVENIENCIA",
-        "GOCOFFEE", "PICOLE", "BOI NA BRASA", "AROMA SABOR"
+        "RESTAURANTE", "RESTAUR", "REST", "MERUZA",
+        "TZ RESTAURANTE", "GARAGEM", "CANTINA", "FEIJOADA",
+        "PARTEKA", "ARMAZEM DO MALTE", "SABOR IRRESISTIVEL",
+        "PANIF", "PANIFICADORA", "FAMILIA SOUZA", "DOM HENRIQUE",
+        "GASTRONOM", "ALLE CONVENIENCIA", "GOCOFFEE", "PICOLE",
+        "BOI NA BRASA", "AROMA SABOR", "CHALE COLONIAL",
+        "COSTENA", "D D PRENSADO"
     ]):
         return "Alimentação fora de casa"
 
+    # ========================================================
+    # VESTUÁRIO / COMPRAS
+    # ========================================================
+
     if any(x in m for x in [
         "ZZOPER", "PRIVALIA", "MODAS", "ZARPELLON", "STORE",
-        "SHOPEE", "MERCADO LIVRE", "SAPATARIA", "COSMETICOS", "DESTAK"
+        "SHOPEE", "MERCADO LIVRE", "SAPATARIA", "COSMETICOS",
+        "DESTAK", "YASMIN", "CONFECC"
     ]):
         return "Vestuário / Compras"
 
+    # ========================================================
+    # CASA / UTILIDADES
+    # ========================================================
+
     if any(x in m for x in [
         "HOME CENTER", "DAL POZZO", "ELETRO", "SCHULZE",
-        "PONTO DAS CAPAS", "GMAD", "BORTOLANZA", "ENCAPE"
+        "PONTO DAS CAPAS", "GMAD", "BORTOLANZA", "ENCAPE",
+        "PARAFUSOS", "PARAFUSOS GUARAPUAVA"
     ]):
         return "Casa / Utilidades"
 
+    # ========================================================
+    # SAÚDE / ATIVIDADE FÍSICA
+    # ========================================================
+
     if any(x in m for x in [
-        "FARM", "FORMULAS", "BATEL", "LABORATORIO", "CARTAO DE TODOS",
-        "DRA FRANCIS", "HEVILLYN", "ADIQPLU LABORATORIO",
-        "FARMACIAS REDE SAUDE", "OTICA"
+        "FARM", "FORMULAS", "BATEL", "LABORATORIO",
+        "CARTAO DE TODOS", "DRA FRANCIS", "HEVILLYN",
+        "ADIQPLU LABORATORIO", "FARMACIAS REDE SAUDE",
+        "OTICA", "ACADEMIA", "ACADEMIAVIGOR", "VIGOR"
     ]):
         return "Saúde"
+
+    # ========================================================
+    # ASSINATURAS
+    # ========================================================
 
     if any(x in m for x in [
         "SPOTIFY", "NETFLIX", "AMAZON", "GOOGLE", "APPLE",
@@ -65,36 +102,67 @@ def classificar_categoria(merchant):
     ]):
         return "Assinaturas"
 
+    # ========================================================
+    # LAZER / VIAGENS
+    # ========================================================
+
     if any(x in m for x in [
-        "CINEX", "CINE", "PSYBAREEVENTOS", "PSY BAR", "HOTEL",
-        "PAX EXPRESS", "PALOMASDRINKS", "DRINKS", "EVENTOS"
+        "CINEX", "CINE", "PSYBAREEVENTOS", "PSY BAR",
+        "HOTEL", "PAX EXPRESS", "PALOMASDRINKS", "DRINKS",
+        "EVENTOS", "EVENTO"
     ]):
         return "Lazer / Viagens"
 
+    # ========================================================
+    # DOCUMENTAÇÃO / IMPOSTOS
+    # ========================================================
+
     if any(x in m for x in [
-        "CARTORIO", "CARTORI", "PEX GUARAPUAVA", "DETRAN", "PREFEITURA"
+        "CARTORIO", "CARTORI", "PEX GUARAPUAVA", "DETRAN",
+        "PREFEITURA"
     ]):
         return "Documentação / Impostos"
+
+    # ========================================================
+    # TECNOLOGIA
+    # ========================================================
 
     if any(x in m for x in [
         "TECNOLOGIA", "PG JE TECNOLOGIA", "INFO"
     ]):
         return "Tecnologia"
 
+    # ========================================================
+    # SERVIÇOS / PAGAMENTOS PESSOAIS
+    # ========================================================
+
     if any(x in m for x in [
         "AYUB", "A S BONFIM", "ALEXANDRE", "LUCIANO BARBOSA",
         "RENE BARBOSA", "AUGUSTODOSSANTOS", "AUGUSTO DOS SANTOS",
         "JOHN", "NELSON IGLECIAS", "MARCUSWILLIAN", "JOAOVITOR",
-        "BARBEARIA", "CAMARGO"
+        "BARBEARIA", "CAMARGO", "BRENO ARAUJO", "LEONARDO",
+        "VINICIUS", "VINICIUSSTELLEDOS", "LUCASLUIZ", "58723970LEONARDO",
+        "58730161LUCASLUIZ", "A S BOMFIM", "BOMFIM"
     ]):
         return "Serviços / Pagamentos pessoais"
 
-    if any(x in m for x in ["LAVO GUARAPUAVA"]):
+    # ========================================================
+    # SERVIÇOS DOMÉSTICOS
+    # ========================================================
+
+    if any(x in m for x in [
+        "LAVO GUARAPUAVA", "LAVO"
+    ]):
         return "Serviços domésticos"
+
+    # ========================================================
+    # PAGAMENTOS / INTERMEDIADORES
+    # ========================================================
 
     if any(x in m for x in [
         "PG MAXISCARD", "MAXISCARD", "MP CAMILEARISTID",
-        "MERCADO PAGO", "PICPAY", "BLU INSTITUICAO"
+        "MP *CAMILEARISTID", "CAMILEARISTID", "MERCADO PAGO",
+        "PICPAY", "BLU INSTITUICAO"
     ]):
         return "Pagamentos / Intermediadores"
 
