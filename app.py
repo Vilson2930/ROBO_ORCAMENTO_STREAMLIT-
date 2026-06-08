@@ -146,7 +146,6 @@ def preparar_evolucao_faturas(df):
     resultado.columns = ["Fatura", "Valor"]
     resultado["Valor"] = pd.to_numeric(resultado["Valor"], errors="coerce").fillna(0)
     resultado = resultado[resultado["Valor"] > 0]
-
     resultado = resultado.sort_values("Fatura")
 
     return resultado
@@ -223,6 +222,20 @@ def insight_card(titulo, texto, cor="#2563EB"):
         """,
         unsafe_allow_html=True
     )
+
+
+def montar_tabela_faturas_processadas(documentos):
+    linhas = []
+
+    for doc in documentos:
+        linhas.append({
+            "Arquivo": doc.get("arquivo", "-"),
+            "Status": doc.get("status", "-"),
+            "Páginas": doc.get("paginas", 0),
+            "Erro": doc.get("erro", "-")
+        })
+
+    return pd.DataFrame(linhas)
 
 
 st.set_page_config(
@@ -722,10 +735,55 @@ elif pagina == "💳 Parcelas":
     st.header("Compras parceladas")
 
     c1, c2 = st.columns(2)
+
     with c1:
         card_html("Parcelas futuras", moeda(parcelas_futuras), "Compromisso financeiro", "#EF4444")
+        ver_compromisso = st.button("Ver compromisso financeiro", use_container_width=True)
+
     with c2:
         card_html("Faturas analisadas", qtd_pdfs, "Arquivos processados", "#3B82F6")
+        ver_arquivos = st.button("Ver arquivos processados", use_container_width=True)
+
+    if ver_compromisso:
+        st.markdown('<div class="section-title">Resumo do compromisso parcelado</div>', unsafe_allow_html=True)
+
+        total_compras_parceladas = 0
+        qtd_compras_parceladas = 0
+
+        if df_parcelamentos is not None and not df_parcelamentos.empty:
+            qtd_compras_parceladas = len(df_parcelamentos)
+
+            valor_col = escolher_coluna_valor(df_parcelamentos)
+            if valor_col is not None:
+                total_compras_parceladas = pd.to_numeric(
+                    df_parcelamentos[valor_col],
+                    errors="coerce"
+                ).fillna(0).sum()
+
+        p1, p2, p3 = st.columns(3)
+
+        with p1:
+            card_html("Total parcelado identificado", moeda(total_compras_parceladas), "Compras parceladas detectadas", "#EF4444")
+        with p2:
+            card_html("Parcelas futuras", moeda(parcelas_futuras), "Valor ainda comprometido", "#F59E0B")
+        with p3:
+            card_html("Compras parceladas", qtd_compras_parceladas, "Quantidade encontrada", "#3B82F6")
+
+        if df_parcelamentos is not None and not df_parcelamentos.empty:
+            st.markdown("### Compras parceladas identificadas")
+            st.dataframe(df_parcelamentos.round(2), use_container_width=True)
+        else:
+            st.info("Nenhuma compra parcelada foi identificada.")
+
+    if ver_arquivos:
+        st.markdown('<div class="section-title">Arquivos processados</div>', unsafe_allow_html=True)
+
+        tabela_docs = montar_tabela_faturas_processadas(documentos)
+
+        if tabela_docs.empty:
+            st.info("Nenhum arquivo processado encontrado.")
+        else:
+            st.dataframe(tabela_docs, use_container_width=True, hide_index=True)
 
     st.markdown('<div class="section-title">Detalhamento dos parcelamentos</div>', unsafe_allow_html=True)
     st.dataframe(df_parcelamentos.round(2), use_container_width=True)
