@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
 from engine.pdf_engine import processar_pdfs
 from engine.transaction_engine import processar_transacoes
@@ -9,9 +10,54 @@ from engine.parcelamento_engine import processar_parcelamentos, resumo_parcelame
 from engine.diagnostico_engine import gerar_diagnostico, gerar_relatorio_simples
 from engine.recommendation_engine import gerar_recomendacoes, gerar_plano_acao
 
-# ============================================================
-# CONFIGURAÇÃO
-# ============================================================
+USER_RULES_PATH = Path("data/user_rules.csv")
+
+CATEGORIAS_DISPONIVEIS = [
+    "Combustível",
+    "Supermercado",
+    "Alimentação fora de casa",
+    "Saúde",
+    "Transporte",
+    "Casa / Utilidades",
+    "Vestuário / Compras",
+    "Assinaturas / Digital",
+    "Educação",
+    "Lazer / Viagens",
+    "Serviços / Pagamentos pessoais",
+    "Pagamentos / Intermediadores",
+    "Documentação / Impostos",
+    "Pets",
+    "Financeiro / Bancário",
+    "Outros"
+]
+
+
+def salvar_regra_usuario(merchant, categoria):
+    USER_RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+    if USER_RULES_PATH.exists():
+        df = pd.read_csv(USER_RULES_PATH)
+    else:
+        df = pd.DataFrame(columns=["merchant", "categoria"])
+
+    merchant = str(merchant).strip()
+    categoria = str(categoria).strip()
+
+    if not merchant or not categoria:
+        return False
+
+    df = df[df["merchant"].str.upper() != merchant.upper()]
+
+    nova = pd.DataFrame([{
+        "merchant": merchant,
+        "categoria": categoria
+    }])
+
+    df = pd.concat([df, nova], ignore_index=True)
+    df.to_csv(USER_RULES_PATH, index=False)
+
+    return True
+
 
 st.set_page_config(
     page_title="Orçamento Inteligente",
@@ -28,10 +74,6 @@ st.markdown(
     """
 )
 
-# ============================================================
-# MENU
-# ============================================================
-
 st.sidebar.title("Menu")
 
 pagina = st.sidebar.radio(
@@ -42,6 +84,7 @@ pagina = st.sidebar.radio(
         "Parcelamentos",
         "Diagnóstico",
         "Plano de Ação",
+        "Aprendizado do Robô",
         "Debug PDF"
     ]
 )
@@ -60,10 +103,6 @@ senha_pdf = st.sidebar.text_input(
 )
 
 analisar = st.sidebar.button("Analisar")
-
-# ============================================================
-# PROCESSAMENTO
-# ============================================================
 
 if analisar:
 
@@ -110,17 +149,9 @@ if analisar:
 
         st.success("Análise concluída com sucesso.")
 
-# ============================================================
-# DEBUG PDF — APARECE SEMPRE
-# ============================================================
-
 if pagina == "Debug PDF":
 
     st.header("Debug PDF")
-
-    st.warning(
-        "Esta tela é temporária. Ela serve para verificar se o texto das faturas está sendo extraído corretamente."
-    )
 
     if "documentos" not in st.session_state:
         st.info("Envie as faturas, digite a senha e clique em Analisar.")
@@ -128,8 +159,6 @@ if pagina == "Debug PDF":
 
     documentos = st.session_state["documentos"]
     df_transacoes = st.session_state.get("df_transacoes", pd.DataFrame())
-
-    st.subheader("Documentos processados")
 
     for doc in documentos:
         st.markdown(f"### Arquivo: {doc.get('arquivo', '-')}")
@@ -147,15 +176,10 @@ if pagina == "Debug PDF":
             height=350
         )
 
-    st.subheader("Transações encontradas pelo motor")
-    st.write("Quantidade:", len(df_transacoes))
+    st.subheader("Transações encontradas")
     st.dataframe(df_transacoes.head(50), use_container_width=True)
-
     st.stop()
 
-# ============================================================
-# DADOS GERAIS
-# ============================================================
 
 dados_prontos = "diagnostico" in st.session_state
 
@@ -171,9 +195,6 @@ df_parcelamentos = st.session_state["df_parcelamentos"]
 diagnostico = st.session_state["diagnostico"]
 recomendacoes = st.session_state["recomendacoes"]
 
-# ============================================================
-# DASHBOARD
-# ============================================================
 
 if pagina == "Dashboard":
 
@@ -190,21 +211,12 @@ if pagina == "Dashboard":
     st.dataframe(resumo_categoria.round(2), use_container_width=True)
 
     st.subheader("Auditoria dos Outros")
-    st.caption("Mostra os maiores estabelecimentos que ainda caíram em 'Outros' para refinar o robô.")
-
     outros = auditar_outros(df_base, top=50)
+    st.dataframe(outros.round(2), use_container_width=True)
 
-    if outros is None or outros.empty:
-        st.success("Nenhum lançamento relevante em Outros.")
-    else:
-        st.dataframe(outros.round(2), use_container_width=True)
-
-    st.subheader("Prévia das Transações Encontradas")
+    st.subheader("Prévia das Transações")
     st.dataframe(df_transacoes.head(20), use_container_width=True)
 
-# ============================================================
-# GASTOS
-# ============================================================
 
 elif pagina == "Gastos":
 
@@ -216,40 +228,69 @@ elif pagina == "Gastos":
     st.subheader("Top Estabelecimentos")
     st.dataframe(top_merchants(df_base, top=30).round(2), use_container_width=True)
 
-    st.subheader("Auditoria dos Outros")
-    outros = auditar_outros(df_base, top=100)
-
-    if outros is None or outros.empty:
-        st.success("Nenhum lançamento relevante em Outros.")
-    else:
-        st.dataframe(outros.round(2), use_container_width=True)
-
     st.subheader("Transações")
     st.dataframe(df_base.head(100), use_container_width=True)
 
-# ============================================================
-# PARCELAMENTOS
-# ============================================================
 
 elif pagina == "Parcelamentos":
 
     st.header("Compras Parceladas")
     st.dataframe(df_parcelamentos.round(2), use_container_width=True)
 
-# ============================================================
-# DIAGNÓSTICO
-# ============================================================
 
 elif pagina == "Diagnóstico":
 
     st.header("Diagnóstico Financeiro")
     st.text(gerar_relatorio_simples(diagnostico))
 
-# ============================================================
-# PLANO DE AÇÃO
-# ============================================================
 
 elif pagina == "Plano de Ação":
 
     st.header("Plano de Ação")
     st.text(gerar_plano_acao(recomendacoes))
+
+
+elif pagina == "Aprendizado do Robô":
+
+    st.header("Aprendizado do Robô")
+
+    st.info(
+        "Aqui você ensina o robô a classificar estabelecimentos que caíram em Outros. "
+        "Depois de salvar, clique em Analisar novamente."
+    )
+
+    outros = auditar_outros(df_base, top=100)
+
+    if outros is None or outros.empty:
+        st.success("Não há estabelecimentos relevantes em Outros.")
+        st.stop()
+
+    st.subheader("Maiores lançamentos em Outros")
+    st.dataframe(outros.round(2), use_container_width=True)
+
+    merchants = list(outros.index)
+
+    merchant_escolhido = st.selectbox(
+        "Escolha o estabelecimento para ensinar o robô:",
+        merchants
+    )
+
+    categoria_escolhida = st.selectbox(
+        "Escolha a categoria correta:",
+        CATEGORIAS_DISPONIVEIS
+    )
+
+    if st.button("Salvar aprendizado"):
+
+        ok = salvar_regra_usuario(
+            merchant=merchant_escolhido,
+            categoria=categoria_escolhida
+        )
+
+        if ok:
+            st.success(
+                f"Regra salva: {merchant_escolhido} → {categoria_escolhida}. "
+                "Agora clique em Analisar novamente para atualizar os resultados."
+            )
+        else:
+            st.error("Não foi possível salvar a regra.")
