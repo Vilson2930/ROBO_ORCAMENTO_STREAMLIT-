@@ -1,12 +1,16 @@
 # ============================================================
 # CATEGORY ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão comercial genérica ampliada
+# Versão comercial com aprendizado via user_rules.csv
 # ============================================================
 
 import re
 import unicodedata
+from pathlib import Path
 import pandas as pd
+
+
+USER_RULES_PATH = Path("data/user_rules.csv")
 
 
 def normalizar_texto(texto):
@@ -18,6 +22,34 @@ def normalizar_texto(texto):
     return texto
 
 
+def carregar_regras_usuario():
+    if not USER_RULES_PATH.exists():
+        return []
+
+    try:
+        df = pd.read_csv(USER_RULES_PATH)
+
+        if df.empty:
+            return []
+
+        if "merchant" not in df.columns or "categoria" not in df.columns:
+            return []
+
+        regras = []
+
+        for _, row in df.iterrows():
+            merchant = normalizar_texto(row.get("merchant", ""))
+            categoria = str(row.get("categoria", "")).strip()
+
+            if merchant and categoria:
+                regras.append((merchant, categoria))
+
+        return regras
+
+    except Exception:
+        return []
+
+
 REGRAS_CATEGORIAS = {
 
     "Combustível": [
@@ -25,41 +57,47 @@ REGRAS_CATEGORIAS = {
         "COMBUSTÍVEL", "GASOLINA", "ETANOL", "DIESEL", "FLEX",
         "IPIRANGA", "SHELL", "PETROBRAS", "VIBRA", "RAIZEN",
         "ALE", "BR MANIA", "TEXACO", "PETRO", "ABASTECE",
-        "ABASTECIMENTO"
+        "ABASTECIMENTO", "COMERCIO DE COMB"
     ],
 
     "Supermercado": [
-        "SUPERMERCADO", "MERCADO", "MERCEARIA", "MINI MERCADO",
-        "ATACADO", "ATACADAO", "ATACADÃO", "ASSAI", "ASSAÍ",
-        "CARREFOUR", "EXTRA", "BIG", "WALMART", "MUFFATO",
-        "CONDOR", "FORT", "MAXXI", "COMPER", "MATEUS",
-        "SUPERPAO", "SUPERPÃO", "HORTIFRUTI", "HORTI", "EMPORIO",
-        "EMPÓRIO", "ALIMENTOS", "CESTA", "SACOLAO", "SACOLÃO",
-        "QUITANDA", "VERDURAO", "VERDURÃO", "AÇOUGUE", "ACOUGUE"
+        "SUPERMERCADO", "SUPERMERCAD", "MERCADO", "MERCEARIA",
+        "MINI MERCADO", "ATACADO", "ATACADAO", "ATACADÃO",
+        "ASSAI", "ASSAÍ", "CARREFOUR", "EXTRA", "BIG",
+        "WALMART", "MUFFATO", "CONDOR", "FORT", "MAXXI",
+        "COMPER", "MATEUS", "SUPERPAO", "SUPERPÃO",
+        "HORTIFRUTI", "HORTI", "EMPORIO", "EMPÓRIO",
+        "ALIMENTOS", "COMERCIO DE ALIMEN", "CESTA", "SACOLAO",
+        "SACOLÃO", "QUITANDA", "VERDURAO", "VERDURÃO",
+        "AÇOUGUE", "ACOUGUE"
     ],
 
     "Alimentação fora de casa": [
         "RESTAURANTE", "RESTAUR", "REST ", "LANCH", "LANCHONETE",
         "LANCHES", "PIZZARIA", "PIZZA", "BURGER", "HAMBURGUER",
         "HAMBURGUERIA", "IFOOD", "UBER EATS", "RAPPI", "AIQFOME",
-        "DELIVERY", "PADARIA", "PANIFICADORA", "CONFEITARIA",
-        "CAFE", "CAFÉ", "COFFEE", "SORVETE", "SORVETERIA",
-        "PASTEL", "PASTELARIA", "CHURRASCARIA", "GRILL",
-        "CANTINA", "BAR", "PUB", "BISTRO", "ESFIHA", "SUSHI",
-        "TEMAKERIA", "AÇAÍ", "ACAI", "COZINHA", "MARMITA",
-        "MARMITARIA", "DOCERIA", "BOLOS", "BOLO", "CHOCOLATE"
+        "DELIVERY", "PADARIA", "PANIFICADORA", "PANIF",
+        "CONFEITARIA", "CAFE", "CAFÉ", "COFFEE", "SORVETE",
+        "SORVETERIA", "PASTEL", "PASTELARIA", "CHURRASCARIA",
+        "GRILL", "CANTINA", "BAR", "PUB", "BISTRO", "ESFIHA",
+        "SUSHI", "TEMAKERIA", "AÇAÍ", "ACAI", "COZINHA",
+        "MARMITA", "MARMITARIA", "DOCERIA", "BOLOS", "BOLO",
+        "CHOCOLATE", "MALTE", "GASTRONOM", "FEIJOADA",
+        "CONVENIENCIA", "CARNE", "BEEF", "BURGUES", "BUFFALO"
     ],
 
     "Saúde": [
-        "FARMACIA", "FARMÁCIA", "DROGARIA", "DROGA", "DROGASIL",
-        "RAIA", "PACHECO", "PANVEL", "NISSEI", "CLINICA", "CLÍNICA",
-        "HOSPITAL", "LABORATORIO", "LABORATÓRIO", "LAB ", "EXAME",
-        "EXAMES", "ODONTO", "ODONTOLOGIA", "DENTISTA", "MEDICO",
-        "MÉDICO", "MEDICA", "MÉDICA", "CONSULTORIO", "CONSULTÓRIO",
+        "FARMACIA", "FARMÁCIA", "FARMACEUTICA", "FARMACÊUTICA",
+        "DROGARIA", "DROGA", "DROGASIL", "RAIA", "PACHECO",
+        "PANVEL", "NISSEI", "CLINICA", "CLÍNICA", "HOSPITAL",
+        "LABORATORIO", "LABORATÓRIO", "LAB ", "EXAME", "EXAMES",
+        "ODONTO", "ODONTOLOGIA", "DENTISTA", "MEDICO", "MÉDICO",
+        "MEDICA", "MÉDICA", "CONSULTORIO", "CONSULTÓRIO",
         "OTICA", "ÓTICA", "OFTALMO", "CARDIO", "DERMATO",
         "FISIOTERAPIA", "FISIO", "PSICOLOGIA", "TERAPIA",
         "ACADEMIA", "SMART FIT", "BIO RITMO", "BLUEFIT", "GYM",
-        "FITNESS", "CROSSFIT", "MUSCULACAO", "MUSCULAÇÃO"
+        "FITNESS", "CROSSFIT", "MUSCULACAO", "MUSCULAÇÃO",
+        "FORMULAS", "FORMULAS", "DRA ", "DR "
     ],
 
     "Transporte": [
@@ -77,10 +115,10 @@ REGRAS_CATEGORIAS = {
         "TINTAS", "TINTA", "MOVEIS", "MÓVEIS", "ELETRO",
         "ELETRODOMESTICO", "ELETRODOMÉSTICO", "UTILIDADES",
         "CASA", "LEROY", "LEROY MERLIN", "TELHANORTE", "CASSOL",
-        "TOK STOK", "TOKSTOK", "CAMICADO", "CAMICADO", "DECOR",
-        "DECORACAO", "DECORAÇÃO", "MADEIRA", "MDF", "ILUMINACAO",
-        "ILUMINAÇÃO", "MAGAZINE LUIZA", "MAGALU", "CASAS BAHIA",
-        "PONTO FRIO", "FAST SHOP"
+        "TOK STOK", "TOKSTOK", "CAMICADO", "DECOR", "DECORACAO",
+        "DECORAÇÃO", "MADEIRA", "MDF", "ILUMINACAO", "ILUMINAÇÃO",
+        "MAGAZINE LUIZA", "MAGALU", "CASAS BAHIA", "PONTO FRIO",
+        "FAST SHOP", "PONTO DAS CAPAS", "GMAD", "BORTOLANZA"
     ],
 
     "Vestuário / Compras": [
@@ -92,7 +130,7 @@ REGRAS_CATEGORIAS = {
         "BOUTIQUE", "OUTLET", "CONFEC", "CONFECCAO", "CONFECÇÃO",
         "COSMETICOS", "COSMÉTICOS", "PERFUMARIA", "BELEZA",
         "O BOTICARIO", "BOTICARIO", "NATURA", "AVON", "SEPHORA",
-        "DAFITI", "NETSHOES", "CENTAURO", "DECATHLON"
+        "DAFITI", "NETSHOES", "CENTAURO", "DECATHLON", "ZZOPER"
     ],
 
     "Assinaturas / Digital": [
@@ -109,7 +147,8 @@ REGRAS_CATEGORIAS = {
         "ESCOLA", "COLEGIO", "COLÉGIO", "FACULDADE", "UNIVERSIDADE",
         "CURSO", "EDUCACAO", "EDUCAÇÃO", "LIVRARIA", "MATERIAL ESCOLAR",
         "UDEMY", "ALURA", "HOTMART", "EDUZZ", "KIRVANO", "KIWIFY",
-        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO"
+        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO",
+        "ASSOCIACAODEPAISE", "ASSOCIACAO DE PAIS"
     ],
 
     "Lazer / Viagens": [
@@ -117,7 +156,8 @@ REGRAS_CATEGORIAS = {
         "AZUL", "GOL", "LATAM", "PASSAREDO", "CINEMA", "CINE",
         "INGRESSO", "INGRESSO COM", "EVENTO", "EVENTOS", "SHOW",
         "TEATRO", "PARQUE", "CLUBE", "DRINKS", "BALADA", "FESTA",
-        "TURISMO", "VIAGEM", "VIAGENS", "RESORT"
+        "TURISMO", "VIAGEM", "VIAGENS", "RESORT", "MOTORSPORT",
+        "RACING"
     ],
 
     "Serviços / Pagamentos pessoais": [
@@ -125,14 +165,18 @@ REGRAS_CATEGORIAS = {
         "PEDICURE", "LAVANDERIA", "LAVA JATO", "SERVICOS", "SERVIÇOS",
         "CONSULTORIA", "MANUTENCAO", "MANUTENÇÃO", "REPARO",
         "ASSISTENCIA", "ASSISTÊNCIA", "OFICINA", "MECANICA", "MECÂNICA",
-        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA"
+        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA",
+        "LAVO", "AYUB", "BONFIM", "AUGUSTO", "JOHN", "LEONARDO",
+        "LUCASLUIZ", "VINICIUS", "BRENO", "NELSON", "VITORHENRIQUE",
+        "LILIANE", "MARIA"
     ],
 
     "Pagamentos / Intermediadores": [
         "MERCADO PAGO", "PICPAY", "PAGSEGURO", "GETNET", "STONE",
         "CIELO", "REDE", "SUMUP", "TON", "MP ", "BLU INSTITUICAO",
         "INSTITUICAO DE PAG", "INSTITUIÇÃO DE PAG", "ADIQ", "MAXISCARD",
-        "PAYPAL", "EBANX", "ASAAS", "IUGU", "PAGAR ME", "PAGARME"
+        "PAYPAL", "EBANX", "ASAAS", "IUGU", "PAGAR ME", "PAGARME",
+        "PG ", "JIM COM", "JIM.COM", "ZIG"
     ],
 
     "Documentação / Impostos": [
@@ -155,12 +199,26 @@ REGRAS_CATEGORIAS = {
 }
 
 
-def classificar_categoria(merchant):
+def classificar_por_user_rules(texto):
+    regras = carregar_regras_usuario()
 
+    for merchant_regra, categoria in regras:
+        if merchant_regra in texto:
+            return categoria
+
+    return None
+
+
+def classificar_categoria(merchant):
     texto = normalizar_texto(merchant)
 
     if not texto:
         return "Outros"
+
+    categoria_usuario = classificar_por_user_rules(texto)
+
+    if categoria_usuario:
+        return categoria_usuario
 
     for categoria, palavras in REGRAS_CATEGORIAS.items():
         for palavra in palavras:
@@ -176,7 +234,6 @@ def classificar_categoria(merchant):
 
 
 def processar_categorias(df):
-
     if df is None or len(df) == 0:
         return df
 
@@ -191,7 +248,6 @@ def processar_categorias(df):
 
 
 def resumo_categorias(df):
-
     if df is None or len(df) == 0:
         return pd.DataFrame(
             columns=["valor_total", "quantidade", "ticket_medio", "percentual_total"]
@@ -223,7 +279,6 @@ def resumo_categorias(df):
 
 
 def auditar_outros(df, top=30):
-
     if df is None or len(df) == 0:
         return pd.DataFrame(
             columns=["valor_total", "quantidade", "ticket_medio"]
@@ -253,7 +308,6 @@ def auditar_outros(df, top=30):
 
 
 def resumo_category_engine(df):
-
     resumo = resumo_categorias(df)
 
     if resumo is None or len(resumo) == 0:
