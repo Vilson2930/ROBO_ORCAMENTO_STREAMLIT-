@@ -1,6 +1,7 @@
 # ============================================================
 # CATEGORY ENGINE
 # ORÇAMENTO INTELIGENTE
+# Baseado na Célula 6 - Category Engine por Valor V2
 # ============================================================
 
 import re
@@ -16,161 +17,86 @@ def normalizar_texto(texto):
     return texto
 
 
-CATEGORIAS = {
-
-    # COMBUSTÍVEL
-    "POSTO": "Combustível",
-    "AUTO POSTO": "Combustível",
-    "COMBUSTIVEL": "Combustível",
-    "COMB": "Combustível",
-    "IPIRANGA": "Combustível",
-    "SHELL": "Combustível",
-    "PETROBRAS": "Combustível",
-    "CALED": "Combustível",
-    "STAWS": "Combustível",
-    "INDIO": "Combustível",
-    "ROSETTI": "Combustível",
-    "FERLIN": "Combustível",
-    "REDEGUAPODEPOSTOS": "Combustível",
-    "GUAPO": "Combustível",
-    "PANDA AUTO": "Combustível",
-    "PRA FRENTE": "Combustível",
-    "IBEMA": "Combustível",
-
-    # SUPERMERCADO
-    "SUPERMERCADO": "Supermercado",
-    "SUPERPAO": "Supermercado",
-    "MERCADO": "Supermercado",
-    "ATACADAO": "Supermercado",
-    "CRUZ E CRUZ": "Supermercado",
-    "REDE PARTEKA DE SUPERM": "Supermercado",
-    "ALIMENTOS": "Supermercado",
-    "ARMAZEM": "Supermercado",
-    "ESPECIARIAS": "Supermercado",
-    "EMPORIO": "Supermercado",
-    "GIRASSOL": "Supermercado",
-    "PANIF": "Supermercado",
-    "PANIFICADORA": "Supermercado",
-    "CONFEIT": "Supermercado",
-
-    # ALIMENTAÇÃO FORA DE CASA
-    "RESTAURANTE": "Alimentação fora de casa",
-    "RESTAUR": "Alimentação fora de casa",
-    "REST ": "Alimentação fora de casa",
-    "LANCH": "Alimentação fora de casa",
-    "PIZZ": "Alimentação fora de casa",
-    "GRILL": "Alimentação fora de casa",
-    "CANTINA": "Alimentação fora de casa",
-    "FEIJOADA": "Alimentação fora de casa",
-    "SABOR": "Alimentação fora de casa",
-    "MERUZA": "Alimentação fora de casa",
-    "PORTO UBA": "Alimentação fora de casa",
-    "GARAGEM": "Alimentação fora de casa",
-    "TZ RESTAURANTE": "Alimentação fora de casa",
-    "AROMA": "Alimentação fora de casa",
-    "BOI NA BRASA": "Alimentação fora de casa",
-    "GOCOFFEE": "Alimentação fora de casa",
-    "COFFEE": "Alimentação fora de casa",
-    "PICOLE": "Alimentação fora de casa",
-    "BONTA": "Alimentação fora de casa",
-    "D D PRENSADO": "Alimentação fora de casa",
-    "NOVA PARADA HOTEL REST": "Alimentação fora de casa",
-
-    # SAÚDE
-    "FARMACIA": "Saúde",
-    "FARMACEUTICA": "Saúde",
-    "LABORATORIO": "Saúde",
-    "OTICA": "Saúde",
-    "FORMULA": "Saúde",
-    "DRA": "Saúde",
-    "DR ": "Saúde",
-    "CARTAO DE TODOS": "Saúde",
-    "REDE SAUDE": "Saúde",
-    "HEVILLYN": "Saúde",
-    "BATEL": "Saúde",
-
-    # TECNOLOGIA / ASSINATURAS DIGITAIS
-    "TECNOLOGIA": "Tecnologia",
-    "INFO": "Tecnologia",
-    "ELETRONIC": "Tecnologia",
-    "JE TECNOLOGIA": "Tecnologia",
-    "AMAZON DIGITAL": "Tecnologia",
-    "AMAZON": "Tecnologia",
-
-    # CASA / UTILIDADES
-    "HOME CENTER": "Casa / Utilidades",
-    "DAL POZZO": "Casa / Utilidades",
-    "ELETRO": "Casa / Utilidades",
-    "SCHULZE": "Casa / Utilidades",
-    "PONTO DAS CAPAS": "Casa / Utilidades",
-    "LAVO": "Casa / Utilidades",
-    "ENCAPE": "Casa / Utilidades",
-    "GMAD": "Casa / Utilidades",
-    "BORTOLANZA": "Casa / Utilidades",
-
-    # VESTUÁRIO / COMPRAS
-    "PRIVALIA": "Vestuário / Compras",
-    "PRI*PRIVALIA": "Vestuário / Compras",
-    "ZZOPER": "Vestuário / Compras",
-    "HAVAN": "Vestuário / Compras",
-    "MODAS": "Vestuário / Compras",
-    "ZARPELLON": "Vestuário / Compras",
-    "SAPATARIA": "Vestuário / Compras",
-    "NEWTON": "Vestuário / Compras",
-    "CONFECC": "Vestuário / Compras",
-    "COSMETICOS": "Vestuário / Compras",
-    "DESTAK": "Vestuário / Compras",
-    "YASMIN": "Vestuário / Compras",
-
-    # SERVIÇOS / PAGAMENTOS PESSOAIS
-    "MAXISCARD": "Serviços / Pagamentos pessoais",
-    "MAXISCAR": "Serviços / Pagamentos pessoais",
-    "BARBOSA": "Serviços / Pagamentos pessoais",
-    "BARBEARIA": "Serviços / Pagamentos pessoais",
-    "CAMARGO": "Serviços / Pagamentos pessoais",
-    "BONFIM": "Serviços / Pagamentos pessoais",
-    "JOHN": "Serviços / Pagamentos pessoais",
-    "ALEXANDRE": "Serviços / Pagamentos pessoais",
-    "LUCIANO": "Serviços / Pagamentos pessoais",
-    "NELSON": "Serviços / Pagamentos pessoais",
-    "AYUB": "Serviços / Pagamentos pessoais",
-    "AUGUSTO": "Serviços / Pagamentos pessoais",
-    "MARCUSWILLIAN": "Serviços / Pagamentos pessoais",
-
-    # INTERMEDIADORES
-    "MERCADO PAGO": "Pagamentos / Intermediadores",
-    "MP ": "Pagamentos / Intermediadores",
-    "ADIQ": "Pagamentos / Intermediadores",
-    "BLU INSTITUICAO": "Pagamentos / Intermediadores",
-    "PG ": "Pagamentos / Intermediadores",
-    "PICPAY": "Pagamentos / Intermediadores",
-
-    # LAZER / EVENTOS
-    "EVENTO": "Lazer / Eventos",
-    "PSYBAR": "Lazer / Eventos",
-    "PSY BAR": "Lazer / Eventos",
-    "MALTE": "Lazer / Eventos",
-    "CONVENIENCIA": "Lazer / Eventos",
-    "HELP CONVENIENCIA": "Lazer / Eventos",
-    "PALOMASDRINKS": "Lazer / Eventos",
-    "DRINKS": "Lazer / Eventos",
-    "ALLE": "Lazer / Eventos",
-
-    # VIAGEM / HOSPEDAGEM
-    "HOTEL": "Viagem / Hospedagem",
-    "PAX EXPRESS": "Viagem / Hospedagem",
-}
-
-
 def classificar_categoria(merchant):
 
-    merchant_norm = normalizar_texto(merchant)
+    m = normalizar_texto(merchant)
 
-    for chave, categoria in CATEGORIAS.items():
-        chave_norm = normalizar_texto(chave)
+    if any(x in m for x in ["POSTO", "COMBUSTIVEL", "COMB", "STAWS", "ROSETTI", "CALED", "INDIO", "GUAPO"]):
+        return "Combustível"
 
-        if chave_norm in merchant_norm:
-            return categoria
+    if any(x in m for x in [
+        "SUPERPAO", "SUPERMERCADO", "CRUZ E CRUZ", "ALIMENTOS",
+        "EMPORIO GIRASSOL", "CASA DE ESPECIARIAS", "PMV COMERCIO DE ALIMEN",
+        "REDE PARTEKA DE SUPERM"
+    ]):
+        return "Supermercado"
+
+    if any(x in m for x in [
+        "RESTAURANTE", "RESTAUR", "REST", "MERUZA", "TZ RESTAURANTE",
+        "GARAGEM", "CANTINA", "FEIJOADA", "PARTEKA", "ARMAZEM DO MALTE",
+        "SABOR IRRESISTIVEL", "PANIF", "FAMILIA SOUZA",
+        "DOM HENRIQUE", "GASTRONOM", "ALLE CONVENIENCIA",
+        "GOCOFFEE", "PICOLE", "BOI NA BRASA", "AROMA SABOR"
+    ]):
+        return "Alimentação fora de casa"
+
+    if any(x in m for x in [
+        "ZZOPER", "PRIVALIA", "MODAS", "ZARPELLON", "STORE",
+        "SHOPEE", "MERCADO LIVRE", "SAPATARIA", "COSMETICOS", "DESTAK"
+    ]):
+        return "Vestuário / Compras"
+
+    if any(x in m for x in [
+        "HOME CENTER", "DAL POZZO", "ELETRO", "SCHULZE",
+        "PONTO DAS CAPAS", "GMAD", "BORTOLANZA", "ENCAPE"
+    ]):
+        return "Casa / Utilidades"
+
+    if any(x in m for x in [
+        "FARM", "FORMULAS", "BATEL", "LABORATORIO", "CARTAO DE TODOS",
+        "DRA FRANCIS", "HEVILLYN", "ADIQPLU LABORATORIO",
+        "FARMACIAS REDE SAUDE", "OTICA"
+    ]):
+        return "Saúde"
+
+    if any(x in m for x in [
+        "SPOTIFY", "NETFLIX", "AMAZON", "GOOGLE", "APPLE",
+        "MICROSOFT", "CHATGPT"
+    ]):
+        return "Assinaturas"
+
+    if any(x in m for x in [
+        "CINEX", "CINE", "PSYBAREEVENTOS", "PSY BAR", "HOTEL",
+        "PAX EXPRESS", "PALOMASDRINKS", "DRINKS", "EVENTOS"
+    ]):
+        return "Lazer / Viagens"
+
+    if any(x in m for x in [
+        "CARTORIO", "CARTORI", "PEX GUARAPUAVA", "DETRAN", "PREFEITURA"
+    ]):
+        return "Documentação / Impostos"
+
+    if any(x in m for x in [
+        "TECNOLOGIA", "PG JE TECNOLOGIA", "INFO"
+    ]):
+        return "Tecnologia"
+
+    if any(x in m for x in [
+        "AYUB", "A S BONFIM", "ALEXANDRE", "LUCIANO BARBOSA",
+        "RENE BARBOSA", "AUGUSTODOSSANTOS", "AUGUSTO DOS SANTOS",
+        "JOHN", "NELSON IGLECIAS", "MARCUSWILLIAN", "JOAOVITOR",
+        "BARBEARIA", "CAMARGO"
+    ]):
+        return "Serviços / Pagamentos pessoais"
+
+    if any(x in m for x in ["LAVO GUARAPUAVA"]):
+        return "Serviços domésticos"
+
+    if any(x in m for x in [
+        "PG MAXISCARD", "MAXISCARD", "MP CAMILEARISTID",
+        "MERCADO PAGO", "PICPAY", "BLU INSTITUICAO"
+    ]):
+        return "Pagamentos / Intermediadores"
 
     return "Outros"
 
@@ -194,30 +120,63 @@ def resumo_categorias(df):
 
     if df is None or len(df) == 0:
         return pd.DataFrame(
-            columns=["valor_total", "quantidade", "percentual_total"]
+            columns=["valor_total", "quantidade", "ticket_medio", "percentual_total"]
         )
 
     if "categoria" not in df.columns:
         df = processar_categorias(df)
+
+    valor_total = df["valor"].sum()
 
     resumo = (
         df
         .groupby("categoria")
         .agg(
             valor_total=("valor", "sum"),
-            quantidade=("valor", "count")
+            quantidade=("valor", "count"),
+            ticket_medio=("valor", "mean")
         )
         .sort_values("valor_total", ascending=False)
     )
 
-    total = resumo["valor_total"].sum()
-
-    if total > 0:
-        resumo["percentual_total"] = resumo["valor_total"] / total * 100
+    if valor_total > 0:
+        resumo["percentual_total"] = resumo["valor_total"] / valor_total * 100
     else:
         resumo["percentual_total"] = 0
 
     return resumo
+
+
+def auditar_outros(df, top=30):
+
+    if df is None or len(df) == 0:
+        return pd.DataFrame(
+            columns=["valor_total", "quantidade", "ticket_medio"]
+        )
+
+    if "categoria" not in df.columns:
+        df = processar_categorias(df)
+
+    outros = df[df["categoria"] == "Outros"]
+
+    if len(outros) == 0:
+        return pd.DataFrame(
+            columns=["valor_total", "quantidade", "ticket_medio"]
+        )
+
+    auditoria = (
+        outros
+        .groupby("merchant")
+        .agg(
+            valor_total=("valor", "sum"),
+            quantidade=("valor", "count"),
+            ticket_medio=("valor", "mean")
+        )
+        .sort_values("valor_total", ascending=False)
+        .head(top)
+    )
+
+    return auditoria
 
 
 def resumo_category_engine(df):
@@ -227,10 +186,31 @@ def resumo_category_engine(df):
     if resumo is None or len(resumo) == 0:
         return {
             "total_categorias": 0,
-            "valor_total": 0
+            "valor_total": 0,
+            "valor_outros": 0,
+            "percentual_outros": 0,
+            "status": "SEM DADOS"
         }
+
+    valor_total = float(resumo["valor_total"].sum())
+
+    valor_outros = 0
+    if "Outros" in resumo.index:
+        valor_outros = float(resumo.loc["Outros", "valor_total"])
+
+    percentual_outros = (valor_outros / valor_total * 100) if valor_total > 0 else 0
+
+    if percentual_outros <= 10:
+        status = "APROVADO"
+    elif percentual_outros <= 15:
+        status = "ACEITÁVEL"
+    else:
+        status = "PRECISA REFINAR"
 
     return {
         "total_categorias": len(resumo),
-        "valor_total": float(resumo["valor_total"].sum())
+        "valor_total": valor_total,
+        "valor_outros": valor_outros,
+        "percentual_outros": percentual_outros,
+        "status": status
     }
