@@ -13,13 +13,32 @@ from engine.recommendation_engine import gerar_recomendacoes, gerar_plano_acao
 
 USER_RULES_PATH = Path("data/user_rules.csv")
 
-CATEGORIAS_DISPONIVEIS = [
-    "Combustível", "Supermercado", "Alimentação fora de casa", "Saúde",
-    "Transporte", "Casa / Utilidades", "Vestuário / Compras",
-    "Assinaturas / Digital", "Educação", "Lazer / Viagens",
-    "Serviços / Pagamentos pessoais", "Pagamentos / Intermediadores",
-    "Documentação / Impostos", "Pets", "Financeiro / Bancário", "Outros"
+CORES = [
+    "#22C55E", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6",
+    "#06B6D4", "#EC4899", "#84CC16", "#F97316", "#14B8A6",
+    "#EAB308", "#64748B", "#A855F7", "#10B981", "#F43F5E"
 ]
+
+CORES_CATEGORIAS = {
+    "Combustível": "#3B82F6",
+    "Supermercado": "#22C55E",
+    "Alimentação fora de casa": "#F59E0B",
+    "Saúde": "#14B8A6",
+    "Transporte": "#EAB308",
+    "Casa / Utilidades": "#8B5CF6",
+    "Vestuário / Compras": "#EC4899",
+    "Assinaturas / Digital": "#06B6D4",
+    "Educação": "#84CC16",
+    "Lazer / Viagens": "#F97316",
+    "Serviços / Pagamentos pessoais": "#10B981",
+    "Pagamentos / Intermediadores": "#A855F7",
+    "Documentação / Impostos": "#64748B",
+    "Pets": "#F43F5E",
+    "Financeiro / Bancário": "#94A3B8",
+    "Outros": "#EF4444"
+}
+
+CATEGORIAS_DISPONIVEIS = list(CORES_CATEGORIAS.keys())
 
 
 def moeda(valor):
@@ -44,7 +63,6 @@ def salvar_regra_usuario(merchant, categoria):
         return False
 
     df = df[df["merchant"].str.upper() != merchant.upper()]
-
     nova = pd.DataFrame([{"merchant": merchant, "categoria": categoria}])
     df = pd.concat([df, nova], ignore_index=True)
     df.to_csv(USER_RULES_PATH, index=False)
@@ -132,127 +150,135 @@ st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 1.5rem;
+        padding-top: 1.2rem;
         padding-bottom: 2rem;
-        max-width: 1400px;
+        max-width: 1450px;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #020617 0%, #0F172A 100%);
+        border-right: 1px solid rgba(255,255,255,0.08);
     }
 
     .hero-box {
         background: linear-gradient(135deg, #0F172A, #1E293B);
         padding: 30px;
-        border-radius: 18px;
-        border: 1px solid rgba(255,255,255,0.08);
-        margin-bottom: 25px;
+        border-radius: 22px;
+        border: 1px solid rgba(255,255,255,0.10);
+        margin-bottom: 26px;
     }
 
     .hero-title {
-        font-size: 44px;
-        font-weight: 800;
-        color: white;
+        font-size: 42px;
+        font-weight: 900;
+        color: #FFFFFF;
         margin-bottom: 8px;
     }
 
     .hero-subtitle {
         font-size: 18px;
         color: #CBD5E1;
-        line-height: 1.5;
+        line-height: 1.55;
     }
 
     .section-title {
-        font-size: 25px;
-        font-weight: 800;
+        font-size: 26px;
+        font-weight: 900;
         color: white;
-        margin-top: 28px;
-        margin-bottom: 15px;
-    }
-
-    .side-card {
-        background-color: #111827;
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.08);
-        margin-bottom: 12px;
+        margin-top: 26px;
+        margin-bottom: 16px;
     }
 
     div[data-testid="stMetric"] {
-        background-color: #111827;
+        background: linear-gradient(135deg, #FFFFFF, #F8FAFC);
         padding: 20px;
-        border-radius: 16px;
-        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 18px;
+        border: 1px solid #E5E7EB;
+        box-shadow: 0px 8px 24px rgba(0,0,0,0.10);
     }
 
     div[data-testid="stMetricValue"] {
-        font-size: 28px;
-        color: #FFFFFF;
+        font-size: 27px;
+        color: #111827;
+        font-weight: 800;
     }
 
     div[data-testid="stMetricLabel"] {
-        color: #94A3B8;
+        color: #64748B;
         font-size: 15px;
-    }
-
-    section[data-testid="stSidebar"] {
-        background-color: #020617;
+        font-weight: 700;
     }
 
     .stButton > button {
         border-radius: 12px;
         height: 45px;
-        font-weight: 700;
+        font-weight: 800;
+        background: linear-gradient(135deg, #22C55E, #16A34A);
+        color: white;
+        border: none;
+    }
+
+    .upload-card {
+        background-color: #111827;
+        padding: 15px;
+        border-radius: 16px;
+        border: 1px solid rgba(255,255,255,0.08);
+        margin-bottom: 12px;
+    }
+
+    .status-card {
+        background: linear-gradient(135deg, #064E3B, #065F46);
+        padding: 14px;
+        border-radius: 14px;
+        color: #BBF7D0;
+        font-weight: 800;
+        margin-top: 12px;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-st.markdown(
-    """
-    <div class="hero-box">
-        <div class="hero-title">💰 Orçamento Inteligente</div>
-        <div class="hero-subtitle">
-            Transforme suas faturas em diagnóstico financeiro. Veja onde seu dinheiro está indo,
-            identifique excessos, acompanhe parcelamentos e receba um plano de ação simples.
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.sidebar.title("Orçamento Inteligente")
+st.sidebar.markdown("## 💰 Orçamento Inteligente")
+st.sidebar.caption("Consultor financeiro automatizado")
 
 pagina = st.sidebar.radio(
     "Menu",
     [
-        "Dashboard",
-        "Gastos",
-        "Parcelamentos",
-        "Diagnóstico",
-        "Plano de Ação",
-        "Aprendizado do Robô",
-        "Debug PDF"
+        "🏠 Dashboard",
+        "💸 Gastos",
+        "💳 Parcelamentos",
+        "🧠 Diagnóstico",
+        "🎯 Plano de Ação",
+        "🤖 Aprendizado do Robô",
+        "⚙️ Debug PDF"
     ]
 )
 
 st.sidebar.markdown("---")
+st.sidebar.markdown("### 📄 Faturas")
 
-st.sidebar.markdown("### Enviar faturas")
-
-pdfs = st.sidebar.file_uploader(
-    "PDFs da fatura",
-    type=["pdf"],
-    accept_multiple_files=True,
-    label_visibility="collapsed"
-)
+with st.sidebar.expander("Enviar ou trocar faturas", expanded=True):
+    pdfs = st.file_uploader(
+        "PDFs da fatura",
+        type=["pdf"],
+        accept_multiple_files=True,
+        label_visibility="collapsed"
+    )
 
 if pdfs:
-    st.sidebar.success(f"{len(pdfs)} fatura(s) carregada(s)")
+    st.sidebar.markdown(
+        f"""
+        <div class="status-card">
+        ✅ {len(pdfs)} fatura(s) carregada(s)
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
 
-senha_pdf = st.sidebar.text_input(
-    "Senha dos PDFs",
-    type="password"
-)
-
+senha_pdf = st.sidebar.text_input("Senha dos PDFs", type="password")
 analisar = st.sidebar.button("Analisar faturas", use_container_width=True)
+
 
 if analisar:
 
@@ -266,7 +292,6 @@ if analisar:
         with st.spinner("Analisando suas faturas..."):
 
             documentos = processar_pdfs(uploaded_files=pdfs, senha=senha_pdf)
-
             df_transacoes = processar_transacoes(documentos)
             df_base = processar_merchants(df_transacoes)
             df_base = processar_categorias(df_base)
@@ -295,7 +320,21 @@ if analisar:
         st.success("Análise concluída com sucesso.")
 
 
-if pagina == "Debug PDF":
+st.markdown(
+    """
+    <div class="hero-box">
+        <div class="hero-title">Orçamento Inteligente</div>
+        <div class="hero-subtitle">
+            Envie suas faturas, veja para onde seu dinheiro está indo,
+            acompanhe parcelamentos e transforme gastos em decisões financeiras.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+if pagina == "⚙️ Debug PDF":
 
     st.header("Debug PDF")
 
@@ -343,7 +382,7 @@ recomendacoes = st.session_state["recomendacoes"]
 qtd_pdfs = st.session_state.get("qtd_pdfs", 0)
 
 
-if pagina == "Dashboard":
+if pagina == "🏠 Dashboard":
 
     df_grafico = preparar_resumo_para_grafico(resumo_categoria)
     df_faturas = preparar_gastos_por_fatura(df_base)
@@ -356,45 +395,85 @@ if pagina == "Dashboard":
     col1, col2, col3, col4, col5 = st.columns(5)
 
     col1.metric("Gasto total", moeda(gasto_total))
-    col2.metric("Faturas analisadas", qtd_pdfs)
+    col2.metric("Faturas", qtd_pdfs)
     col3.metric("Parcelas futuras", moeda(parcelas_futuras))
     col4.metric("Score financeiro", f"{score}/100")
     col5.metric("Maior gasto", maior_categoria)
 
-    st.markdown('<div class="section-title">Principais despesas por categoria</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title">Distribuição das despesas</div>', unsafe_allow_html=True)
 
-    top_categorias = df_grafico.head(10).sort_values("Valor", ascending=True)
+    col_pizza, col_barra = st.columns([1, 1.25])
 
-    fig_cat = px.bar(
-        top_categorias,
-        x="Valor",
-        y="Categoria",
-        orientation="h",
-        text="Valor",
-        title=None
-    )
+    with col_pizza:
+        fig_pizza = px.pie(
+            df_grafico,
+            names="Categoria",
+            values="Valor",
+            hole=0.48,
+            color="Categoria",
+            color_discrete_map=CORES_CATEGORIAS
+        )
 
-    fig_cat.update_traces(
-        texttemplate="R$ %{text:,.2f}",
-        textposition="outside",
-        marker_line_width=0
-    )
+        fig_pizza.update_traces(
+            textposition="inside",
+            textinfo="percent",
+            textfont_size=15,
+            pull=[0.04 if i == 0 else 0 for i in range(len(df_grafico))]
+        )
 
-    fig_cat.update_layout(
-        height=520,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="white", size=15),
-        xaxis_title="",
-        yaxis_title="",
-        margin=dict(t=20, b=40, l=20, r=80),
-        showlegend=False
-    )
+        fig_pizza.update_layout(
+            height=520,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", size=14),
+            showlegend=True,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=-0.25,
+                xanchor="center",
+                x=0.5,
+                font=dict(size=11)
+            ),
+            margin=dict(t=20, b=120, l=20, r=20)
+        )
 
-    fig_cat.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
-    fig_cat.update_yaxes(showgrid=False)
+        st.plotly_chart(fig_pizza, use_container_width=True)
 
-    st.plotly_chart(fig_cat, use_container_width=True)
+    with col_barra:
+        top_categorias = df_grafico.head(8).sort_values("Valor", ascending=True)
+
+        fig_cat = px.bar(
+            top_categorias,
+            x="Valor",
+            y="Categoria",
+            orientation="h",
+            text="Valor",
+            color="Categoria",
+            color_discrete_map=CORES_CATEGORIAS
+        )
+
+        fig_cat.update_traces(
+            texttemplate="R$ %{text:,.2f}",
+            textposition="outside",
+            marker_line_width=0
+        )
+
+        fig_cat.update_layout(
+            height=520,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", size=14),
+            xaxis_title="",
+            yaxis_title="",
+            margin=dict(t=20, b=40, l=20, r=95),
+            showlegend=False
+        )
+
+        fig_cat.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+        fig_cat.update_yaxes(showgrid=False)
+
+        st.plotly_chart(fig_cat, use_container_width=True)
 
     st.markdown('<div class="section-title">Resumo executivo</div>', unsafe_allow_html=True)
 
@@ -412,29 +491,31 @@ if pagina == "Dashboard":
 
             Valor: **{moeda(maior_valor)}**
 
-            Participação no total: **{percentual:.1f}%**
+            Participação: **{percentual:.1f}%**
             """
         )
 
     with c2:
         outros_df = auditar_outros(df_base, top=50)
-        valor_outros = 0
 
+        valor_outros = 0
         if outros_df is not None and not outros_df.empty:
             try:
                 valor_outros = float(outros_df.sum().sum())
             except Exception:
                 valor_outros = 0
 
+        percentual_outros = (valor_outros / gasto_total) * 100 if gasto_total else 0
+
         st.info(
             f"""
             🤖 **Qualidade da classificação**
 
-            O sistema combinou regras nacionais com aprendizado do usuário.
-
             Categoria Outros: **{moeda(valor_outros)}**
 
-            Objetivo: manter Outros abaixo de **5%**.
+            Percentual: **{percentual_outros:.1f}%**
+
+            Meta do sistema: manter abaixo de **5%**.
             """
         )
 
@@ -443,12 +524,15 @@ if pagina == "Dashboard":
     if df_faturas.empty:
         st.warning("Não foi possível identificar as despesas por fatura.")
     else:
+        df_faturas = df_faturas.sort_values("Valor", ascending=False)
+
         fig_fat = px.bar(
-            df_faturas.sort_values("Valor", ascending=False),
+            df_faturas,
             x="Fatura",
             y="Valor",
             text="Valor",
-            title=None
+            color="Fatura",
+            color_discrete_sequence=CORES
         )
 
         fig_fat.update_traces(
@@ -458,10 +542,10 @@ if pagina == "Dashboard":
         )
 
         fig_fat.update_layout(
-            height=430,
+            height=380,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white", size=14),
+            font=dict(color="white", size=13),
             xaxis_title="",
             yaxis_title="",
             margin=dict(t=20, b=70, l=40, r=30),
@@ -481,7 +565,7 @@ if pagina == "Dashboard":
     st.dataframe(tabela_categoria, use_container_width=True, hide_index=True)
 
 
-elif pagina == "Gastos":
+elif pagina == "💸 Gastos":
 
     st.header("Para onde foi seu dinheiro")
 
@@ -495,25 +579,25 @@ elif pagina == "Gastos":
     st.dataframe(df_base.head(100), use_container_width=True)
 
 
-elif pagina == "Parcelamentos":
+elif pagina == "💳 Parcelamentos":
 
     st.header("Compras parceladas")
     st.dataframe(df_parcelamentos.round(2), use_container_width=True)
 
 
-elif pagina == "Diagnóstico":
+elif pagina == "🧠 Diagnóstico":
 
     st.header("Diagnóstico financeiro")
     st.text(gerar_relatorio_simples(diagnostico))
 
 
-elif pagina == "Plano de Ação":
+elif pagina == "🎯 Plano de Ação":
 
     st.header("Plano de ação")
     st.text(gerar_plano_acao(recomendacoes))
 
 
-elif pagina == "Aprendizado do Robô":
+elif pagina == "🤖 Aprendizado do Robô":
 
     st.header("Aprendizado do robô")
 
