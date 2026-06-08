@@ -3,210 +3,195 @@
 # ORÇAMENTO INTELIGENTE
 # ============================================================
 
+import re
+import unicodedata
 import pandas as pd
 
-# ============================================================
-# DICIONÁRIO DE CATEGORIAS
-# ============================================================
+
+def normalizar_texto(texto):
+    texto = str(texto).upper().strip()
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = re.sub(r"\s+", " ", texto)
+    return texto
+
 
 CATEGORIAS = {
 
-    # --------------------------------------------------------
     # COMBUSTÍVEL
-    # --------------------------------------------------------
-
     "POSTO": "Combustível",
     "COMBUSTIVEL": "Combustível",
+    "COMB": "Combustível",
     "IPIRANGA": "Combustível",
     "SHELL": "Combustível",
     "PETROBRAS": "Combustível",
+    "CALED": "Combustível",
+    "STAWS": "Combustível",
+    "INDIO": "Combustível",
 
-    # --------------------------------------------------------
     # SUPERMERCADO
-    # --------------------------------------------------------
-
     "SUPERMERCADO": "Supermercado",
     "SUPERPAO": "Supermercado",
     "MERCADO": "Supermercado",
     "ATACADAO": "Supermercado",
+    "CRUZ E CRUZ": "Supermercado",
+    "ALIMENTOS": "Supermercado",
+    "ARMAZEM": "Supermercado",
+    "ESPECIARIAS": "Supermercado",
+    "PANIF": "Supermercado",
 
-    # --------------------------------------------------------
-    # ALIMENTAÇÃO
-    # --------------------------------------------------------
-
+    # ALIMENTAÇÃO FORA DE CASA
     "RESTAURANTE": "Alimentação fora de casa",
-    "LANCHES": "Alimentação fora de casa",
-    "PIZZARIA": "Alimentação fora de casa",
+    "REST ": "Alimentação fora de casa",
+    "LANCH": "Alimentação fora de casa",
+    "PIZZ": "Alimentação fora de casa",
     "GRILL": "Alimentação fora de casa",
     "CANTINA": "Alimentação fora de casa",
     "FEIJOADA": "Alimentação fora de casa",
+    "SABOR": "Alimentação fora de casa",
+    "MERUZA": "Alimentação fora de casa",
+    "PORTO UBA": "Alimentação fora de casa",
+    "GARAGEM": "Alimentação fora de casa",
+    "PARTEKA": "Alimentação fora de casa",
+    "TZ RESTAURANTE": "Alimentação fora de casa",
 
-    # --------------------------------------------------------
     # SAÚDE
-    # --------------------------------------------------------
-
     "FARMACIA": "Saúde",
     "FARMACEUTICA": "Saúde",
     "LABORATORIO": "Saúde",
-    "OTICAS": "Saúde",
-    "FORMULAS": "Saúde",
+    "OTICA": "Saúde",
+    "FORMULA": "Saúde",
     "DRA": "Saúde",
+    "DR ": "Saúde",
+    "CARTAO DE TODOS": "Saúde",
+    "REDE SAUDE": "Saúde",
+    "HEVILLYN": "Saúde",
+    "BATEL": "Saúde",
 
-    # --------------------------------------------------------
     # TECNOLOGIA
-    # --------------------------------------------------------
-
     "TECNOLOGIA": "Tecnologia",
     "INFO": "Tecnologia",
-    "ELETRONICOS": "Tecnologia",
+    "ELETRONIC": "Tecnologia",
+    "JE TECNOLOGIA": "Tecnologia",
 
-    # --------------------------------------------------------
-    # CASA
-    # --------------------------------------------------------
-
+    # CASA / UTILIDADES
     "HOME CENTER": "Casa / Utilidades",
     "DAL POZZO": "Casa / Utilidades",
     "ELETRO": "Casa / Utilidades",
+    "SCHULZE": "Casa / Utilidades",
+    "PONTO DAS CAPAS": "Casa / Utilidades",
+    "LAVO": "Casa / Utilidades",
 
-    # --------------------------------------------------------
-    # VESTUÁRIO
-    # --------------------------------------------------------
-
+    # VESTUÁRIO / COMPRAS
     "PRIVALIA": "Vestuário / Compras",
     "ZZOPER": "Vestuário / Compras",
     "HAVAN": "Vestuário / Compras",
     "MODAS": "Vestuário / Compras",
-    "CONFECCOES": "Vestuário / Compras",
+    "CONFECC": "Vestuário / Compras",
+    "ZARPELLON": "Vestuário / Compras",
+    "YASMIN COSMETICOS": "Vestuário / Compras",
 
-    # --------------------------------------------------------
-    # SERVIÇOS
-    # --------------------------------------------------------
-
+    # SERVIÇOS / PAGAMENTOS
     "MAXISCARD": "Serviços / Pagamentos pessoais",
+    "MAXISCAR": "Serviços / Pagamentos pessoais",
     "BARBOSA": "Serviços / Pagamentos pessoais",
+    "BONFIM": "Serviços / Pagamentos pessoais",
+    "JOHN": "Serviços / Pagamentos pessoais",
+    "ALEXANDRE": "Serviços / Pagamentos pessoais",
+    "LUCIANO": "Serviços / Pagamentos pessoais",
+    "NELSON": "Serviços / Pagamentos pessoais",
+    "AYUB": "Serviços / Pagamentos pessoais",
 
-    # --------------------------------------------------------
     # INTERMEDIADORES
-    # --------------------------------------------------------
-
-    "MP ": "Pagamentos / Intermediadores",
     "MERCADO PAGO": "Pagamentos / Intermediadores",
+    "MP ": "Pagamentos / Intermediadores",
     "ADIQ": "Pagamentos / Intermediadores",
+    "BLU INSTITUICAO": "Pagamentos / Intermediadores",
+    "PG ": "Pagamentos / Intermediadores",
+    "PICPAY": "Pagamentos / Intermediadores",
 
+    # LAZER / EVENTOS
+    "EVENTO": "Lazer / Eventos",
+    "PSYBAR": "Lazer / Eventos",
+    "MALTE": "Lazer / Eventos",
+    "CONVENIENCIA": "Lazer / Eventos",
+    "ALLE": "Lazer / Eventos",
+
+    # VIAGEM / HOSPEDAGEM
+    "HOTEL": "Viagem / Hospedagem",
+    "PAX EXPRESS": "Viagem / Hospedagem",
 }
 
-# ============================================================
-# CLASSIFICAÇÃO
-# ============================================================
 
 def classificar_categoria(merchant):
 
-    merchant = str(merchant).upper()
+    merchant_norm = normalizar_texto(merchant)
 
     for chave, categoria in CATEGORIAS.items():
+        chave_norm = normalizar_texto(chave)
 
-        if chave in merchant:
+        if chave_norm in merchant_norm:
             return categoria
 
     return "Outros"
 
 
-# ============================================================
-# PROCESSAR CATEGORIAS
-# ============================================================
-
 def processar_categorias(df):
 
-    if len(df) == 0:
+    if df is None or len(df) == 0:
         return df
 
     df = df.copy()
 
-    df["categoria"] = (
+    if "merchant" not in df.columns:
+        df["merchant"] = df["descricao_original"]
 
-        df["merchant"]
-
-        .apply(
-            classificar_categoria
-        )
-
-    )
+    df["categoria"] = df["merchant"].apply(classificar_categoria)
 
     return df
 
 
-# ============================================================
-# RESUMO CATEGORIAS
-# ============================================================
-
 def resumo_categorias(df):
 
-    if len(df) == 0:
-        return pd.DataFrame()
+    if df is None or len(df) == 0:
+        return pd.DataFrame(
+            columns=["valor_total", "quantidade", "percentual_total"]
+        )
+
+    if "categoria" not in df.columns:
+        df = processar_categorias(df)
 
     resumo = (
-
         df
-
         .groupby("categoria")
-
         .agg(
-
             valor_total=("valor", "sum"),
-
             quantidade=("valor", "count")
-
         )
-
+        .sort_values("valor_total", ascending=False)
     )
 
-    resumo["percentual_total"] = (
+    total = resumo["valor_total"].sum()
 
-        resumo["valor_total"]
-
-        / resumo["valor_total"].sum()
-
-        * 100
-
-    )
-
-    resumo = (
-
-        resumo
-
-        .sort_values(
-            "valor_total",
-            ascending=False
-        )
-
-    )
+    if total > 0:
+        resumo["percentual_total"] = resumo["valor_total"] / total * 100
+    else:
+        resumo["percentual_total"] = 0
 
     return resumo
 
-
-# ============================================================
-# RESUMO EXECUTIVO
-# ============================================================
 
 def resumo_category_engine(df):
 
     resumo = resumo_categorias(df)
 
-    if len(resumo) == 0:
-
+    if resumo is None or len(resumo) == 0:
         return {
-
             "total_categorias": 0,
             "valor_total": 0
-
         }
 
     return {
-
         "total_categorias": len(resumo),
-
-        "valor_total": float(
-            resumo["valor_total"].sum()
-        )
-
+        "valor_total": float(resumo["valor_total"].sum())
     }
