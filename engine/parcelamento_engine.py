@@ -1,116 +1,152 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão profissional — identifica compras parceladas em múltiplos padrões
+# Versão robusta — evita confundir datas, dívida e compras normais
 # ============================================================
 
 import re
 import pandas as pd
 
 
-# ============================================================
-# NORMALIZAÇÃO
-# ============================================================
+TERMOS_NAO_PARCELAMENTO = [
+    "PAGAMENTO MINIMO",
+    "PAGAMENTO MÍNIMO",
+    "PAGAMENTO PARCIAL",
+    "SALDO FINANCIADO",
+    "SALDO DEVEDOR",
+    "JUROS",
+    "JUROS ROTATIVO",
+    "IOF",
+    "MULTA",
+    "ENCARGOS",
+    "ENCARGOS FINANCEIROS",
+    "BOLETO",
+    "PIX",
+    "TRANSFERENCIA",
+    "TRANSFERÊNCIA",
+    "POSTO",
+    "SUPERMERCADO",
+    "FARMACIA",
+    "DROGARIA",
+]
+
 
 def normalizar_texto(texto):
-    texto = str(texto).upper()
+    texto = str(texto or "").upper()
 
-    texto = texto.replace("Á", "A")
-    texto = texto.replace("À", "A")
-    texto = texto.replace("Ã", "A")
-    texto = texto.replace("Â", "A")
-    texto = texto.replace("É", "E")
-    texto = texto.replace("Ê", "E")
-    texto = texto.replace("Í", "I")
-    texto = texto.replace("Ó", "O")
-    texto = texto.replace("Õ", "O")
-    texto = texto.replace("Ô", "O")
-    texto = texto.replace("Ú", "U")
-    texto = texto.replace("Ç", "C")
+    trocas = {
+        "Á": "A", "À": "A", "Ã": "A", "Â": "A",
+        "É": "E", "Ê": "E",
+        "Í": "I",
+        "Ó": "O", "Õ": "O", "Ô": "O",
+        "Ú": "U",
+        "Ç": "C",
+    }
+
+    for a, b in trocas.items():
+        texto = texto.replace(a, b)
 
     texto = re.sub(r"\s+", " ", texto)
-
     return texto.strip()
 
 
-# ============================================================
-# EXTRAIR PARCELA
-# ============================================================
+def contem_termo_bloqueado(texto):
+    texto = normalizar_texto(texto)
+    return any(normalizar_texto(t) in texto for t in TERMOS_NAO_PARCELAMENTO)
+
 
 def extrair_parcela(texto):
-    """
-    Reconhece padrões como:
-
-    PARCELA 1 DE 12
-    PARCELA 01 DE 12
-    PARC 1 DE 12
-    PARC 01/12
-    1 DE 12
-    01/12
-    10/12
-    3/10
-    12X
-    10X
-    COMPRA PARCELADA 5/10
-    """
-
     texto = normalizar_texto(texto)
 
-    padroes = [
+    if contem_termo_bloqueado(texto):
+        return None, None
 
-        # PARCELA 1 DE 12 / PARC 1 DE 12
-        r"(?:PARCELA|PARC)\s*(\d{1,2})\s*(?:DE|/)\s*(\d{1,2})",
-
-        # 1 DE 12
-        r"\b(\d{1,2})\s*DE\s*(\d{1,2})\b",
-
-        # 01/12, 1/12, 10/12
-        r"\b(\d{1,2})\s*/\s*(\d{1,2})\b",
-
-        # 12X ou 10X — assume parcela atual 1
-        r"\b(\d{1,2})\s*X\b",
+    padroes_fortes = [
+        r"\bPARCELA\s*(\d{1,2})\s*DE\s*(\d{1,2})\b",
+        r"\bPARC\s*(\d{1,2})\s*DE\s*(\d{1,2})\b",
+        r"\bPARC\s*(\d{1,2})\s*/\s*(\d{1,2})\b",
+        r"\bCOMPRA\s*PARCELADA\s*(\d{1,2})\s*/\s*(\d{1,2})\b",
+        r"\bPARCELADO\s*(\d{1,2})\s*/\s*(\d{1,2})\b",
     ]
 
-    for padrao in padroes:
+    for padrao in padroes_fortes:
+        m = re.search(padrao, texto)
+        if m:
+            atual = int(m.group(1))
+            total = int(m.group(2))
 
-        match = re.search(padrao, texto)
+            if 1 <= atual <= total and total > 1:
+                return atual, total
 
-        if match:
+    # Formato 05/10 ou 03/24:
+    # só aceita se estiver perto de palavras de compra parcelada ou merchant conhecido.
+    contexto_parcelado = any(p in texto for p in [
+        "PARCELA",
+        "PARC",
+        "PARCELADO",
+        "COMPRA PARCELADA",
+        "MAGAZINE",
+        "MERCADO LIVRE",
+        "CASAS BAHIA",
+        "KABUM",
+        "PONTO FRIO",
+        "AMAZON",
+        "CVC",
+        "DELL",
+        "NOTEBOOK",
+        "ELETRO",
+        "MÓVEIS",
+        "MOVEIS"
+    ])
 
-            if "X" in padrao:
-                atual = 1
-                total = int(match.group(1))
-            else:
-                atual = int(match.group(1))
-                total = int(match.group(2))
+    if contexto_parcelado:
+        m = re.search(r"\b(\d{1,2})\s*/\s*(\d{1,2})\b", texto)
+        if m:
+            atual = int(m.group(1))
+            total = int(m.group(2))
 
-            if total <= 1:
-                continue
+            if 1 <= atual <= total and total > 1:
+                return atual, total
 
-            if atual < 1:
-                continue
+    # Formato 2X, 10X:
+    # só aceita se não for termo financeiro/dívida e tiver merchant/comércio na descrição.
+    contexto_compra = any(p in texto for p in [
+        "MAGAZINE",
+        "MERCADO LIVRE",
+        "CASAS BAHIA",
+        "KABUM",
+        "PONTO FRIO",
+        "AMAZON",
+        "CVC",
+        "DELL",
+        "LOJA",
+        "SHOP",
+        "STORE",
+        "NOTEBOOK",
+        "CELULAR",
+        "ELETRO"
+    ])
 
-            if atual > total:
-                continue
+    if contexto_compra:
+        m = re.search(r"\b(\d{1,2})\s*X\b", texto)
+        if m:
+            total = int(m.group(1))
 
-            return atual, total
+            if total > 1:
+                return 1, total
 
     return None, None
 
-
-# ============================================================
-# LIMPAR NOME DA COMPRA
-# ============================================================
 
 def limpar_compra(texto):
     texto = normalizar_texto(texto)
 
     padroes_limpeza = [
-        r"\(PARCELA\s*\d{1,2}\s*DE\s*\d{1,2}\)",
-        r"PARCELA\s*\d{1,2}\s*DE\s*\d{1,2}",
-        r"PARC\s*\d{1,2}\s*DE\s*\d{1,2}",
-        r"PARC\s*\d{1,2}\s*/\s*\d{1,2}",
-        r"\b\d{1,2}\s*DE\s*\d{1,2}\b",
+        r"\bPARCELA\s*\d{1,2}\s*DE\s*\d{1,2}\b",
+        r"\bPARC\s*\d{1,2}\s*DE\s*\d{1,2}\b",
+        r"\bPARC\s*\d{1,2}\s*/\s*\d{1,2}\b",
+        r"\bCOMPRA\s*PARCELADA\s*\d{1,2}\s*/\s*\d{1,2}\b",
+        r"\bPARCELADO\s*\d{1,2}\s*/\s*\d{1,2}\b",
         r"\b\d{1,2}\s*/\s*\d{1,2}\b",
         r"\b\d{1,2}\s*X\b",
         r"COMPRA PARCELADA",
@@ -121,14 +157,11 @@ def limpar_compra(texto):
     for padrao in padroes_limpeza:
         texto = re.sub(padrao, "", texto)
 
+    texto = re.sub(r"\b\d{1,2}\s+DE\s+[A-Z]{3,9}\.?\s+\d{4}\b", "", texto)
     texto = re.sub(r"\s+", " ", texto)
 
-    return texto.strip()
+    return texto.strip(" -")
 
-
-# ============================================================
-# ENCONTRAR COLUNAS
-# ============================================================
 
 def encontrar_coluna_descricao(df):
     candidatos = [
@@ -171,19 +204,10 @@ def encontrar_coluna_valor(df):
             return candidato
 
     numericas = df.select_dtypes(include="number").columns.tolist()
+    return numericas[0] if numericas else None
 
-    if numericas:
-        return numericas[0]
-
-    return None
-
-
-# ============================================================
-# PROCESSAR PARCELAMENTOS
-# ============================================================
 
 def processar_parcelamentos(df):
-
     if df is None or len(df) == 0:
         return pd.DataFrame()
 
@@ -195,176 +219,88 @@ def processar_parcelamentos(df):
     if coluna_descricao is None or coluna_valor is None:
         return pd.DataFrame()
 
-    temp[coluna_valor] = pd.to_numeric(
-        temp[coluna_valor],
-        errors="coerce"
-    ).fillna(0)
-
+    temp[coluna_valor] = pd.to_numeric(temp[coluna_valor], errors="coerce").fillna(0)
     temp["descricao_parcelamento"] = temp[coluna_descricao].astype(str)
 
-    temp["compra"] = temp["descricao_parcelamento"].apply(
-        limpar_compra
-    )
+    temp["parcela_atual"] = temp["descricao_parcelamento"].apply(lambda x: extrair_parcela(x)[0])
+    temp["total_parcelas"] = temp["descricao_parcelamento"].apply(lambda x: extrair_parcela(x)[1])
+    temp["compra"] = temp["descricao_parcelamento"].apply(limpar_compra)
 
-    temp["parcela_atual"] = temp["descricao_parcelamento"].apply(
-        lambda x: extrair_parcela(x)[0]
-    )
+    parcelados = temp[temp["parcela_atual"].notna()].copy()
 
-    temp["total_parcelas"] = temp["descricao_parcelamento"].apply(
-        lambda x: extrair_parcela(x)[1]
-    )
-
-    parcelados = temp[
-        temp["parcela_atual"].notna()
-    ].copy()
-
-    if len(parcelados) == 0:
+    if parcelados.empty:
         return pd.DataFrame()
 
     resultado = []
 
-    for compra, grupo in parcelados.groupby("compra"):
+    for _, linha in parcelados.iterrows():
+        compra = str(linha.get("compra", "")).strip()
 
-        ultima_parcela = int(
-            grupo["parcela_atual"].max()
-        )
+        if not compra:
+            continue
 
-        total_parcelas = int(
-            grupo["total_parcelas"].max()
-        )
+        if contem_termo_bloqueado(compra):
+            continue
 
-        linha = grupo[
-            grupo["parcela_atual"] == ultima_parcela
-        ].iloc[-1]
+        parcela_atual = int(linha["parcela_atual"])
+        total_parcelas = int(linha["total_parcelas"])
+        valor_parcela = float(linha[coluna_valor])
 
-        valor_parcela = float(
-            linha[coluna_valor]
-        )
+        parcelas_abertas = max(total_parcelas - parcela_atual, 0)
+        valor_total_compra = total_parcelas * valor_parcela
+        valor_pago = parcela_atual * valor_parcela
+        valor_restante = parcelas_abertas * valor_parcela
 
-        parcelas_abertas = max(
-            total_parcelas - ultima_parcela,
-            0
-        )
-
-        valor_total_compra = (
-            total_parcelas * valor_parcela
-        )
-
-        valor_pago = (
-            ultima_parcela * valor_parcela
-        )
-
-        valor_restante = (
-            parcelas_abertas * valor_parcela
-        )
-
-        status = (
-            "QUITADO"
-            if parcelas_abertas == 0
-            else "ABERTO"
-        )
+        status = "QUITADO" if parcelas_abertas == 0 else "ABERTO"
 
         resultado.append({
-
             "compra": compra,
-
-            "categoria": linha.get(
-                "categoria",
-                "Outros"
-            ),
-
-            "ultima_parcela": ultima_parcela,
-
+            "categoria": linha.get("categoria", "Outros"),
+            "ultima_parcela": parcela_atual,
             "total_parcelas": total_parcelas,
-
-            "parcelas_pagas": ultima_parcela,
-
+            "parcelas_pagas": parcela_atual,
             "parcelas_abertas": parcelas_abertas,
-
             "valor_parcela": valor_parcela,
-
             "valor_total_compra": valor_total_compra,
-
             "valor_pago": valor_pago,
-
             "valor_restante": valor_restante,
-
             "status": status,
-
-            "descricao_detectada": linha.get(
-                coluna_descricao,
-                ""
-            )
-
+            "descricao_detectada": linha.get(coluna_descricao, "")
         })
+
+    if not resultado:
+        return pd.DataFrame()
 
     resultado = pd.DataFrame(resultado)
 
-    resultado = resultado.sort_values(
-        "valor_restante",
-        ascending=False
+    resultado = resultado.drop_duplicates(
+        subset=["compra", "ultima_parcela", "total_parcelas", "valor_parcela"]
     )
+
+    resultado = resultado.sort_values("valor_restante", ascending=False)
 
     return resultado
 
 
-# ============================================================
-# RESUMO EXECUTIVO
-# ============================================================
-
 def resumo_parcelamentos(df_parcelamentos):
-
     if df_parcelamentos is None or len(df_parcelamentos) == 0:
-
         return {
-
             "parcelamentos": 0,
             "abertos": 0,
             "quitados": 0,
             "valor_restante": 0,
             "valor_total_compras": 0,
             "maior_compromisso": 0
-
         }
 
-    abertos = df_parcelamentos[
-        df_parcelamentos["status"] == "ABERTO"
-    ]
-
-    quitados = df_parcelamentos[
-        df_parcelamentos["status"] == "QUITADO"
-    ]
+    abertos = df_parcelamentos[df_parcelamentos["status"] == "ABERTO"]
+    quitados = df_parcelamentos[df_parcelamentos["status"] == "QUITADO"]
 
     return {
-
-        "parcelamentos":
-            len(df_parcelamentos),
-
-        "abertos":
-            len(abertos),
-
-        "quitados":
-            len(quitados),
-
-        "valor_restante":
-            float(
-                df_parcelamentos[
-                    "valor_restante"
-                ].sum()
-            ),
-
-        "valor_total_compras":
-            float(
-                df_parcelamentos[
-                    "valor_total_compra"
-                ].sum()
-            ),
-
-        "maior_compromisso":
-            float(
-                df_parcelamentos[
-                    "valor_restante"
-                ].max()
-            )
-
+        "parcelamentos": len(df_parcelamentos),
+        "abertos": len(abertos),
+        "quitados": len(quitados),
+        "valor_restante": float(df_parcelamentos["valor_restante"].sum()),
+        "valor_total_compras": float(df_parcelamentos["valor_total_compra"].sum()),
+        "maior_compromisso": float(df_parcelamentos["valor_restante"].max())
     }
