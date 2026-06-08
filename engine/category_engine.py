@@ -1,7 +1,7 @@
 # ============================================================
 # CATEGORY ENGINE
 # ORÇAMENTO INTELIGENTE
-# Baseado na Célula 6 - Category Engine por Valor V2
+# Versão comercial genérica
 # ============================================================
 
 import re
@@ -13,158 +13,123 @@ def normalizar_texto(texto):
     texto = str(texto).upper().strip()
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = re.sub(r"[^A-Z0-9\s]", " ", texto)
     texto = re.sub(r"\s+", " ", texto)
     return texto
 
 
+REGRAS_CATEGORIAS = {
+
+    "Combustível": [
+        "POSTO", "AUTO POSTO", "COMBUSTIVEL", "GASOLINA",
+        "ETANOL", "DIESEL", "IPIRANGA", "SHELL", "PETROBRAS",
+        "ALE ", "RAIZEN"
+    ],
+
+    "Supermercado": [
+        "SUPERMERCADO", "MERCADO", "MERCEARIA", "ATACADO",
+        "ATACADAO", "ASSAI", "CARREFOUR", "EXTRA", "BIG",
+        "CONDOR", "MUFFATO", "SUPERPAO", "HORTIFRUTI",
+        "HORTI", "EMPORIO", "ALIMENTOS"
+    ],
+
+    "Alimentação fora de casa": [
+        "RESTAURANTE", "RESTAUR", "LANCH", "LANCHONETE",
+        "PIZZARIA", "PIZZA", "BURGER", "HAMBURGUER",
+        "IFOOD", "UBER EATS", "AIQFOME", "DELIVERY",
+        "PADARIA", "PANIFICADORA", "CONFEITARIA",
+        "CAFE", "COFFEE", "SORVETE", "PASTEL",
+        "CHURRASCARIA", "GRILL", "CANTINA", "BAR "
+    ],
+
+    "Saúde": [
+        "FARMACIA", "DROGARIA", "DROGA", "DROGASIL",
+        "RAIA", "PACHECO", "PANVEL", "CLINICA",
+        "HOSPITAL", "LABORATORIO", "EXAME", "ODONTO",
+        "DENTISTA", "MEDICO", "MEDICA", "OTICA",
+        "ACADEMIA", "SMART FIT", "BIO RITMO", "BLUEFIT"
+    ],
+
+    "Transporte": [
+        "UBER", "99", "TAXI", "CABIFY", "PASSAGEM",
+        "METRO", "ONIBUS", "ÔNIBUS", "PEDAGIO",
+        "ESTACIONAMENTO", "PARKING", "LOCADORA",
+        "LOCALIZA", "MOVIDA", "UNIDAS"
+    ],
+
+    "Casa / Utilidades": [
+        "HOME CENTER", "CONSTRUCAO", "CONSTRUÇÃO", "MATERIAL",
+        "FERRAGEM", "PARAFUSO", "TINTAS", "MOVEIS",
+        "MÓVEIS", "ELETRO", "UTILIDADES", "CASA",
+        "LEROY", "TELHANORTE", "TOK STOK", "CAMICADO",
+        "MAGAZINE LUIZA", "MAGALU"
+    ],
+
+    "Vestuário / Compras": [
+        "MODAS", "ROUPAS", "VESTUARIO", "VESTUÁRIO",
+        "CALCADOS", "CALÇADOS", "SAPATARIA", "TENIS",
+        "TÊNIS", "RENNER", "RIACHUELO", "C A ",
+        "CEA", "MARISA", "ZARA", "SHEIN", "SHOPEE",
+        "MERCADO LIVRE", "AMERICANAS", "HAVAN",
+        "PRIVALIA", "LOJA", "STORE", "SHOPPING"
+    ],
+
+    "Assinaturas / Digital": [
+        "NETFLIX", "SPOTIFY", "AMAZON PRIME", "AMAZON DIGITAL",
+        "GOOGLE", "APPLE", "MICROSOFT", "YOUTUBE",
+        "DISNEY", "HBO", "MAX", "GLOBOPLAY",
+        "CHATGPT", "OPENAI", "CANVA", "ADOBE"
+    ],
+
+    "Educação": [
+        "ESCOLA", "COLEGIO", "COLÉGIO", "FACULDADE",
+        "UNIVERSIDADE", "CURSO", "EDUCACAO", "EDUCAÇÃO",
+        "LIVRARIA", "MATERIAL ESCOLAR", "UDEMY", "ALURA"
+    ],
+
+    "Lazer / Viagens": [
+        "HOTEL", "POUSADA", "AIRBNB", "BOOKING",
+        "DECOLAR", "CVC", "CINEMA", "CINE",
+        "INGRESSO", "EVENTO", "SHOW", "TEATRO",
+        "PARQUE", "CLUBE", "BAR", "DRINKS"
+    ],
+
+    "Serviços / Pagamentos pessoais": [
+        "BARBEARIA", "SALAO", "SALÃO", "BELEZA",
+        "MANICURE", "LAVANDERIA", "LAVA JATO",
+        "SERVICOS", "SERVIÇOS", "CONSULTORIA",
+        "PIX", "TRANSFERENCIA", "TRANSFERÊNCIA",
+        "PAGAMENTO", "MAXISCARD"
+    ],
+
+    "Pagamentos / Intermediadores": [
+        "MERCADO PAGO", "PICPAY", "PAGSEGURO", "GETNET",
+        "STONE", "CIELO", "REDE", "SUMUP", "TON",
+        "MP ", "BLU INSTITUICAO", "INSTITUICAO DE PAG"
+    ],
+
+    "Documentação / Impostos": [
+        "CARTORIO", "CARTÓRIO", "DETRAN", "PREFEITURA",
+        "IPVA", "MULTA", "TRIBUTO", "IMPOSTO",
+        "TAXA", "RECEITA FEDERAL"
+    ],
+
+    "Pets": [
+        "PET", "PETZ", "COBASI", "VETERINARIO",
+        "VETERINÁRIO", "RACAO", "RAÇÃO", "AGROPECUARIA"
+    ],
+}
+
+
 def classificar_categoria(merchant):
 
-    m = normalizar_texto(merchant)
+    texto = normalizar_texto(merchant)
 
-    # ========================================================
-    # COMBUSTÍVEL
-    # ========================================================
-
-    if any(x in m for x in [
-        "POSTO", "AUTO POSTO", "COMBUSTIVEL", "COMB", "STAWS",
-        "ROSETTI", "CALED", "INDIO", "GUAPO", "PANDA AUTO",
-        "IBEMA", "FERLIN", "PRA FRENTE"
-    ]):
-        return "Combustível"
-
-    # ========================================================
-    # SUPERMERCADO
-    # ========================================================
-
-    if any(x in m for x in [
-        "SUPERPAO", "SUPERMERCADO", "CRUZ E CRUZ", "ALIMENTOS",
-        "EMPORIO GIRASSOL", "CASA DE ESPECIARIAS",
-        "PMV COMERCIO DE ALIMEN", "REDE PARTEKA DE SUPERM"
-    ]):
-        return "Supermercado"
-
-    # ========================================================
-    # ALIMENTAÇÃO FORA DE CASA
-    # ========================================================
-
-    if any(x in m for x in [
-        "RESTAURANTE", "RESTAUR", "REST", "MERUZA",
-        "TZ RESTAURANTE", "GARAGEM", "CANTINA", "FEIJOADA",
-        "PARTEKA", "ARMAZEM DO MALTE", "SABOR IRRESISTIVEL",
-        "PANIF", "PANIFICADORA", "FAMILIA SOUZA", "DOM HENRIQUE",
-        "GASTRONOM", "ALLE CONVENIENCIA", "GOCOFFEE", "PICOLE",
-        "BOI NA BRASA", "AROMA SABOR", "CHALE COLONIAL",
-        "COSTENA", "D D PRENSADO"
-    ]):
-        return "Alimentação fora de casa"
-
-    # ========================================================
-    # VESTUÁRIO / COMPRAS
-    # ========================================================
-
-    if any(x in m for x in [
-        "ZZOPER", "PRIVALIA", "MODAS", "ZARPELLON", "STORE",
-        "SHOPEE", "MERCADO LIVRE", "SAPATARIA", "COSMETICOS",
-        "DESTAK", "YASMIN", "CONFECC"
-    ]):
-        return "Vestuário / Compras"
-
-    # ========================================================
-    # CASA / UTILIDADES
-    # ========================================================
-
-    if any(x in m for x in [
-        "HOME CENTER", "DAL POZZO", "ELETRO", "SCHULZE",
-        "PONTO DAS CAPAS", "GMAD", "BORTOLANZA", "ENCAPE",
-        "PARAFUSOS", "PARAFUSOS GUARAPUAVA"
-    ]):
-        return "Casa / Utilidades"
-
-    # ========================================================
-    # SAÚDE / ATIVIDADE FÍSICA
-    # ========================================================
-
-    if any(x in m for x in [
-        "FARM", "FORMULAS", "BATEL", "LABORATORIO",
-        "CARTAO DE TODOS", "DRA FRANCIS", "HEVILLYN",
-        "ADIQPLU LABORATORIO", "FARMACIAS REDE SAUDE",
-        "OTICA", "ACADEMIA", "ACADEMIAVIGOR", "VIGOR"
-    ]):
-        return "Saúde"
-
-    # ========================================================
-    # ASSINATURAS
-    # ========================================================
-
-    if any(x in m for x in [
-        "SPOTIFY", "NETFLIX", "AMAZON", "GOOGLE", "APPLE",
-        "MICROSOFT", "CHATGPT"
-    ]):
-        return "Assinaturas"
-
-    # ========================================================
-    # LAZER / VIAGENS
-    # ========================================================
-
-    if any(x in m for x in [
-        "CINEX", "CINE", "PSYBAREEVENTOS", "PSY BAR",
-        "HOTEL", "PAX EXPRESS", "PALOMASDRINKS", "DRINKS",
-        "EVENTOS", "EVENTO"
-    ]):
-        return "Lazer / Viagens"
-
-    # ========================================================
-    # DOCUMENTAÇÃO / IMPOSTOS
-    # ========================================================
-
-    if any(x in m for x in [
-        "CARTORIO", "CARTORI", "PEX GUARAPUAVA", "DETRAN",
-        "PREFEITURA"
-    ]):
-        return "Documentação / Impostos"
-
-    # ========================================================
-    # TECNOLOGIA
-    # ========================================================
-
-    if any(x in m for x in [
-        "TECNOLOGIA", "PG JE TECNOLOGIA", "INFO"
-    ]):
-        return "Tecnologia"
-
-    # ========================================================
-    # SERVIÇOS / PAGAMENTOS PESSOAIS
-    # ========================================================
-
-    if any(x in m for x in [
-        "AYUB", "A S BONFIM", "ALEXANDRE", "LUCIANO BARBOSA",
-        "RENE BARBOSA", "AUGUSTODOSSANTOS", "AUGUSTO DOS SANTOS",
-        "JOHN", "NELSON IGLECIAS", "MARCUSWILLIAN", "JOAOVITOR",
-        "BARBEARIA", "CAMARGO", "BRENO ARAUJO", "LEONARDO",
-        "VINICIUS", "VINICIUSSTELLEDOS", "LUCASLUIZ", "58723970LEONARDO",
-        "58730161LUCASLUIZ", "A S BOMFIM", "BOMFIM"
-    ]):
-        return "Serviços / Pagamentos pessoais"
-
-    # ========================================================
-    # SERVIÇOS DOMÉSTICOS
-    # ========================================================
-
-    if any(x in m for x in [
-        "LAVO GUARAPUAVA", "LAVO"
-    ]):
-        return "Serviços domésticos"
-
-    # ========================================================
-    # PAGAMENTOS / INTERMEDIADORES
-    # ========================================================
-
-    if any(x in m for x in [
-        "PG MAXISCARD", "MAXISCARD", "MP CAMILEARISTID",
-        "MP *CAMILEARISTID", "CAMILEARISTID", "MERCADO PAGO",
-        "PICPAY", "BLU INSTITUICAO"
-    ]):
-        return "Pagamentos / Intermediadores"
+    for categoria, palavras in REGRAS_CATEGORIAS.items():
+        for palavra in palavras:
+            palavra_norm = normalizar_texto(palavra)
+            if palavra_norm in texto:
+                return categoria
 
     return "Outros"
 
@@ -207,10 +172,11 @@ def resumo_categorias(df):
         .sort_values("valor_total", ascending=False)
     )
 
-    if valor_total > 0:
-        resumo["percentual_total"] = resumo["valor_total"] / valor_total * 100
-    else:
-        resumo["percentual_total"] = 0
+    resumo["percentual_total"] = (
+        resumo["valor_total"] / valor_total * 100
+        if valor_total > 0
+        else 0
+    )
 
     return resumo
 
@@ -232,7 +198,7 @@ def auditar_outros(df, top=30):
             columns=["valor_total", "quantidade", "ticket_medio"]
         )
 
-    auditoria = (
+    return (
         outros
         .groupby("merchant")
         .agg(
@@ -243,8 +209,6 @@ def auditar_outros(df, top=30):
         .sort_values("valor_total", ascending=False)
         .head(top)
     )
-
-    return auditoria
 
 
 def resumo_category_engine(df):
@@ -266,7 +230,11 @@ def resumo_category_engine(df):
     if "Outros" in resumo.index:
         valor_outros = float(resumo.loc["Outros", "valor_total"])
 
-    percentual_outros = (valor_outros / valor_total * 100) if valor_total > 0 else 0
+    percentual_outros = (
+        valor_outros / valor_total * 100
+        if valor_total > 0
+        else 0
+    )
 
     if percentual_outros <= 10:
         status = "APROVADO"
