@@ -4,7 +4,7 @@ import pandas as pd
 from engine.pdf_engine import processar_pdfs
 from engine.transaction_engine import processar_transacoes
 from engine.merchant_engine import processar_merchants, top_merchants
-from engine.category_engine import processar_categorias, resumo_categorias
+from engine.category_engine import processar_categorias, resumo_categorias, auditar_outros
 from engine.parcelamento_engine import processar_parcelamentos, resumo_parcelamentos
 from engine.diagnostico_engine import gerar_diagnostico, gerar_relatorio_simples
 from engine.recommendation_engine import gerar_recomendacoes, gerar_plano_acao
@@ -189,6 +189,16 @@ if pagina == "Dashboard":
     st.subheader("Gastos por Categoria")
     st.dataframe(resumo_categoria.round(2), use_container_width=True)
 
+    st.subheader("Auditoria dos Outros")
+    st.caption("Mostra os maiores estabelecimentos que ainda caíram em 'Outros' para refinar o robô.")
+
+    outros = auditar_outros(df_base, top=50)
+
+    if outros is None or outros.empty:
+        st.success("Nenhum lançamento relevante em Outros.")
+    else:
+        st.dataframe(outros.round(2), use_container_width=True)
+
     st.subheader("Prévia das Transações Encontradas")
     st.dataframe(df_transacoes.head(20), use_container_width=True)
 
@@ -205,6 +215,14 @@ elif pagina == "Gastos":
 
     st.subheader("Top Estabelecimentos")
     st.dataframe(top_merchants(df_base, top=30).round(2), use_container_width=True)
+
+    st.subheader("Auditoria dos Outros")
+    outros = auditar_outros(df_base, top=100)
+
+    if outros is None or outros.empty:
+        st.success("Nenhum lançamento relevante em Outros.")
+    else:
+        st.dataframe(outros.round(2), use_container_width=True)
 
     st.subheader("Transações")
     st.dataframe(df_base.head(100), use_container_width=True)
