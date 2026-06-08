@@ -57,47 +57,47 @@ REGRAS_CATEGORIAS = {
         "COMBUSTÍVEL", "GASOLINA", "ETANOL", "DIESEL", "FLEX",
         "IPIRANGA", "SHELL", "PETROBRAS", "VIBRA", "RAIZEN",
         "ALE", "BR MANIA", "TEXACO", "PETRO", "ABASTECE",
-        "ABASTECIMENTO", "COMERCIO DE COMB"
+        "ABASTECIMENTO", "COMERCIO DE COMB", "COMÉRCIO DE COMB"
     ],
 
     "Supermercado": [
         "SUPERMERCADO", "SUPERMERCAD", "MERCADO", "MERCEARIA",
-        "MINI MERCADO", "ATACADO", "ATACADAO", "ATACADÃO",
-        "ASSAI", "ASSAÍ", "CARREFOUR", "EXTRA", "BIG",
-        "WALMART", "MUFFATO", "CONDOR", "FORT", "MAXXI",
-        "COMPER", "MATEUS", "SUPERPAO", "SUPERPÃO",
-        "HORTIFRUTI", "HORTI", "EMPORIO", "EMPÓRIO",
-        "ALIMENTOS", "COMERCIO DE ALIMEN", "CESTA", "SACOLAO",
-        "SACOLÃO", "QUITANDA", "VERDURAO", "VERDURÃO",
-        "AÇOUGUE", "ACOUGUE"
+        "MINI MERCADO", "MERCADINHO", "ATACADO", "ATACADAO",
+        "ATACADÃO", "ASSAI", "ASSAÍ", "CARREFOUR", "EXTRA",
+        "BIG", "WALMART", "MUFFATO", "CONDOR", "FORT", "MAXXI",
+        "COMPER", "MATEUS", "BOMPRECO", "BOMPREÇO", "NORDESTAO",
+        "NORDESTÃO", "SUPERPAO", "SUPERPÃO", "HORTIFRUTI", "HORTI",
+        "EMPORIO", "EMPÓRIO", "ALIMENTOS", "COMERCIO DE ALIMEN",
+        "COMÉRCIO DE ALIMEN", "CESTA", "SACOLAO", "SACOLÃO",
+        "QUITANDA", "VERDURAO", "VERDURÃO", "ACOUGUE", "AÇOUGUE"
     ],
 
     "Alimentação fora de casa": [
         "RESTAURANTE", "RESTAUR", "REST ", "LANCH", "LANCHONETE",
         "LANCHES", "PIZZARIA", "PIZZA", "BURGER", "HAMBURGUER",
         "HAMBURGUERIA", "IFOOD", "UBER EATS", "RAPPI", "AIQFOME",
-        "DELIVERY", "PADARIA", "PANIFICADORA", "PANIF",
-        "CONFEITARIA", "CAFE", "CAFÉ", "COFFEE", "SORVETE",
-        "SORVETERIA", "PASTEL", "PASTELARIA", "CHURRASCARIA",
-        "GRILL", "CANTINA", "BAR", "PUB", "BISTRO", "ESFIHA",
-        "SUSHI", "TEMAKERIA", "AÇAÍ", "ACAI", "COZINHA",
-        "MARMITA", "MARMITARIA", "DOCERIA", "BOLOS", "BOLO",
-        "CHOCOLATE", "MALTE", "GASTRONOM", "FEIJOADA",
-        "CONVENIENCIA", "CARNE", "BEEF", "BURGUES", "BUFFALO"
+        "DELIVERY", "PADARIA", "PANIFICADORA", "PANIF", "CONFEITARIA",
+        "CAFE", "CAFÉ", "COFFEE", "SORVETE", "SORVETERIA", "PASTEL",
+        "PASTELARIA", "CHURRASCARIA", "GRILL", "CANTINA", "BAR",
+        "PUB", "BISTRO", "ESFIHA", "SUSHI", "TEMAKERIA", "AÇAÍ",
+        "ACAI", "COZINHA", "MARMITA", "MARMITARIA", "DOCERIA",
+        "BOLOS", "BOLO", "CHOCOLATE", "MALTE", "GASTRONOM",
+        "FEIJOADA", "CONVENIENCIA", "CONVENIÊNCIA", "CARNE",
+        "BEEF", "BURGUES", "BURGUER", "BUFFALO", "CHURROS"
     ],
 
     "Saúde": [
         "FARMACIA", "FARMÁCIA", "FARMACEUTICA", "FARMACÊUTICA",
         "DROGARIA", "DROGA", "DROGASIL", "RAIA", "PACHECO",
-        "PANVEL", "NISSEI", "CLINICA", "CLÍNICA", "HOSPITAL",
-        "LABORATORIO", "LABORATÓRIO", "LAB ", "EXAME", "EXAMES",
-        "ODONTO", "ODONTOLOGIA", "DENTISTA", "MEDICO", "MÉDICO",
-        "MEDICA", "MÉDICA", "CONSULTORIO", "CONSULTÓRIO",
+        "PAGUE MENOS", "PANVEL", "NISSEI", "CLINICA", "CLÍNICA",
+        "HOSPITAL", "LABORATORIO", "LABORATÓRIO", "LAB ", "EXAME",
+        "EXAMES", "ODONTO", "ODONTOLOGIA", "DENTISTA", "MEDICO",
+        "MÉDICO", "MEDICA", "MÉDICA", "CONSULTORIO", "CONSULTÓRIO",
         "OTICA", "ÓTICA", "OFTALMO", "CARDIO", "DERMATO",
         "FISIOTERAPIA", "FISIO", "PSICOLOGIA", "TERAPIA",
         "ACADEMIA", "SMART FIT", "BIO RITMO", "BLUEFIT", "GYM",
         "FITNESS", "CROSSFIT", "MUSCULACAO", "MUSCULAÇÃO",
-        "FORMULAS", "FORMULAS", "DRA ", "DR "
+        "FORMULAS", "FÓRMULAS", "DRA ", "DR "
     ],
 
     "Transporte": [
@@ -118,7 +118,7 @@ REGRAS_CATEGORIAS = {
         "TOK STOK", "TOKSTOK", "CAMICADO", "DECOR", "DECORACAO",
         "DECORAÇÃO", "MADEIRA", "MDF", "ILUMINACAO", "ILUMINAÇÃO",
         "MAGAZINE LUIZA", "MAGALU", "CASAS BAHIA", "PONTO FRIO",
-        "FAST SHOP", "PONTO DAS CAPAS", "GMAD", "BORTOLANZA"
+        "FAST SHOP", "FERREIRA COSTA", "CARAJAS", "CARAJÁS"
     ],
 
     "Vestuário / Compras": [
@@ -130,7 +130,8 @@ REGRAS_CATEGORIAS = {
         "BOUTIQUE", "OUTLET", "CONFEC", "CONFECCAO", "CONFECÇÃO",
         "COSMETICOS", "COSMÉTICOS", "PERFUMARIA", "BELEZA",
         "O BOTICARIO", "BOTICARIO", "NATURA", "AVON", "SEPHORA",
-        "DAFITI", "NETSHOES", "CENTAURO", "DECATHLON", "ZZOPER"
+        "DAFITI", "NETSHOES", "CENTAURO", "DECATHLON",
+        "ARMAZEM PARAIBA", "ARMAZÉM PARAÍBA"
     ],
 
     "Assinaturas / Digital": [
@@ -147,8 +148,7 @@ REGRAS_CATEGORIAS = {
         "ESCOLA", "COLEGIO", "COLÉGIO", "FACULDADE", "UNIVERSIDADE",
         "CURSO", "EDUCACAO", "EDUCAÇÃO", "LIVRARIA", "MATERIAL ESCOLAR",
         "UDEMY", "ALURA", "HOTMART", "EDUZZ", "KIRVANO", "KIWIFY",
-        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO",
-        "ASSOCIACAODEPAISE", "ASSOCIACAO DE PAIS"
+        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO"
     ],
 
     "Lazer / Viagens": [
@@ -165,10 +165,7 @@ REGRAS_CATEGORIAS = {
         "PEDICURE", "LAVANDERIA", "LAVA JATO", "SERVICOS", "SERVIÇOS",
         "CONSULTORIA", "MANUTENCAO", "MANUTENÇÃO", "REPARO",
         "ASSISTENCIA", "ASSISTÊNCIA", "OFICINA", "MECANICA", "MECÂNICA",
-        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA",
-        "LAVO", "AYUB", "BONFIM", "AUGUSTO", "JOHN", "LEONARDO",
-        "LUCASLUIZ", "VINICIUS", "BRENO", "NELSON", "VITORHENRIQUE",
-        "LILIANE", "MARIA"
+        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA"
     ],
 
     "Pagamentos / Intermediadores": [
@@ -209,6 +206,27 @@ def classificar_por_user_rules(texto):
     return None
 
 
+def detectar_pessoa_fisica(texto):
+    texto = normalizar_texto(texto)
+
+    if re.search(r"\d{5,}[A-Z]+", texto):
+        return True
+
+    palavras = texto.split()
+
+    conectores = {"DE", "DA", "DO", "DAS", "DOS", "E"}
+
+    nomes_validos = [
+        p for p in palavras
+        if p not in conectores and len(p) >= 3 and p.isalpha()
+    ]
+
+    if len(nomes_validos) >= 2 and len(texto) <= 40:
+        return True
+
+    return False
+
+
 def classificar_categoria(merchant):
     texto = normalizar_texto(merchant)
 
@@ -224,11 +242,11 @@ def classificar_categoria(merchant):
         for palavra in palavras:
             palavra_norm = normalizar_texto(palavra)
 
-            if not palavra_norm:
-                continue
-
-            if palavra_norm in texto:
+            if palavra_norm and palavra_norm in texto:
                 return categoria
+
+    if detectar_pessoa_fisica(texto):
+        return "Serviços / Pagamentos pessoais"
 
     return "Outros"
 
