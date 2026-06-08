@@ -14,23 +14,19 @@ from engine.recommendation_engine import gerar_recomendacoes, gerar_plano_acao
 USER_RULES_PATH = Path("data/user_rules.csv")
 
 CATEGORIAS_DISPONIVEIS = [
-    "Combustível",
-    "Supermercado",
-    "Alimentação fora de casa",
-    "Saúde",
-    "Transporte",
-    "Casa / Utilidades",
-    "Vestuário / Compras",
-    "Assinaturas / Digital",
-    "Educação",
-    "Lazer / Viagens",
-    "Serviços / Pagamentos pessoais",
-    "Pagamentos / Intermediadores",
-    "Documentação / Impostos",
-    "Pets",
-    "Financeiro / Bancário",
-    "Outros"
+    "Combustível", "Supermercado", "Alimentação fora de casa", "Saúde",
+    "Transporte", "Casa / Utilidades", "Vestuário / Compras",
+    "Assinaturas / Digital", "Educação", "Lazer / Viagens",
+    "Serviços / Pagamentos pessoais", "Pagamentos / Intermediadores",
+    "Documentação / Impostos", "Pets", "Financeiro / Bancário", "Outros"
 ]
+
+
+def moeda(valor):
+    try:
+        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "R$ 0,00"
 
 
 def salvar_regra_usuario(merchant, categoria):
@@ -49,22 +45,11 @@ def salvar_regra_usuario(merchant, categoria):
 
     df = df[df["merchant"].str.upper() != merchant.upper()]
 
-    nova = pd.DataFrame([{
-        "merchant": merchant,
-        "categoria": categoria
-    }])
-
+    nova = pd.DataFrame([{"merchant": merchant, "categoria": categoria}])
     df = pd.concat([df, nova], ignore_index=True)
     df.to_csv(USER_RULES_PATH, index=False)
 
     return True
-
-
-def moeda(valor):
-    try:
-        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except Exception:
-        return "R$ 0,00"
 
 
 def preparar_resumo_para_grafico(resumo):
@@ -108,7 +93,7 @@ def preparar_gastos_por_fatura(df):
     for col in base.columns:
         col_lower = str(col).lower()
 
-        if col_lower in ["arquivo", "fatura", "pdf", "nome_arquivo"] or "arquivo" in col_lower or "fatura" in col_lower:
+        if "arquivo" in col_lower or "fatura" in col_lower or "pdf" in col_lower:
             coluna_fatura = col
 
         if "valor" in col_lower or "total" in col_lower or "gasto" in col_lower:
@@ -147,41 +132,50 @@ st.markdown(
     """
     <style>
     .block-container {
-        padding-top: 2rem;
+        padding-top: 1.5rem;
         padding-bottom: 2rem;
+        max-width: 1400px;
     }
 
     .hero-box {
-        background: linear-gradient(135deg, #102A43, #243B53);
-        padding: 34px;
-        border-radius: 20px;
-        margin-bottom: 28px;
-        border: 1px solid rgba(255,255,255,0.10);
+        background: linear-gradient(135deg, #0F172A, #1E293B);
+        padding: 30px;
+        border-radius: 18px;
+        border: 1px solid rgba(255,255,255,0.08);
+        margin-bottom: 25px;
     }
 
     .hero-title {
-        font-size: 48px;
+        font-size: 44px;
         font-weight: 800;
         color: white;
-        margin-bottom: 12px;
+        margin-bottom: 8px;
     }
 
     .hero-subtitle {
-        font-size: 19px;
-        color: #D9E2EC;
-        line-height: 1.6;
+        font-size: 18px;
+        color: #CBD5E1;
+        line-height: 1.5;
     }
 
     .section-title {
-        font-size: 28px;
+        font-size: 25px;
         font-weight: 800;
         color: white;
         margin-top: 28px;
-        margin-bottom: 18px;
+        margin-bottom: 15px;
+    }
+
+    .side-card {
+        background-color: #111827;
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.08);
+        margin-bottom: 12px;
     }
 
     div[data-testid="stMetric"] {
-        background-color: #161B22;
+        background-color: #111827;
         padding: 20px;
         border-radius: 16px;
         border: 1px solid rgba(255,255,255,0.08);
@@ -193,7 +187,18 @@ st.markdown(
     }
 
     div[data-testid="stMetricLabel"] {
-        color: #AAB7C4;
+        color: #94A3B8;
+        font-size: 15px;
+    }
+
+    section[data-testid="stSidebar"] {
+        background-color: #020617;
+    }
+
+    .stButton > button {
+        border-radius: 12px;
+        height: 45px;
+        font-weight: 700;
     }
     </style>
     """,
@@ -205,18 +210,18 @@ st.markdown(
     <div class="hero-box">
         <div class="hero-title">💰 Orçamento Inteligente</div>
         <div class="hero-subtitle">
-            Envie suas faturas, descubra para onde seu dinheiro está indo,
-            identifique compras parceladas, reduza desperdícios e receba um diagnóstico financeiro claro.
+            Transforme suas faturas em diagnóstico financeiro. Veja onde seu dinheiro está indo,
+            identifique excessos, acompanhe parcelamentos e receba um plano de ação simples.
         </div>
     </div>
     """,
     unsafe_allow_html=True
 )
 
-st.sidebar.title("Menu")
+st.sidebar.title("Orçamento Inteligente")
 
 pagina = st.sidebar.radio(
-    "Navegação",
+    "Menu",
     [
         "Dashboard",
         "Gastos",
@@ -230,18 +235,24 @@ pagina = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
+st.sidebar.markdown("### Enviar faturas")
+
 pdfs = st.sidebar.file_uploader(
-    "Enviar faturas em PDF",
+    "PDFs da fatura",
     type=["pdf"],
-    accept_multiple_files=True
+    accept_multiple_files=True,
+    label_visibility="collapsed"
 )
+
+if pdfs:
+    st.sidebar.success(f"{len(pdfs)} fatura(s) carregada(s)")
 
 senha_pdf = st.sidebar.text_input(
     "Senha dos PDFs",
     type="password"
 )
 
-analisar = st.sidebar.button("Analisar", use_container_width=True)
+analisar = st.sidebar.button("Analisar faturas", use_container_width=True)
 
 if analisar:
 
@@ -254,10 +265,7 @@ if analisar:
     else:
         with st.spinner("Analisando suas faturas..."):
 
-            documentos = processar_pdfs(
-                uploaded_files=pdfs,
-                senha=senha_pdf
-            )
+            documentos = processar_pdfs(uploaded_files=pdfs, senha=senha_pdf)
 
             df_transacoes = processar_transacoes(documentos)
             df_base = processar_merchants(df_transacoes)
@@ -266,10 +274,7 @@ if analisar:
             df_parcelamentos = processar_parcelamentos(df_base)
             resumo_parcelas = resumo_parcelamentos(df_parcelamentos)
 
-            diagnostico = gerar_diagnostico(
-                resumo_categoria,
-                df_parcelamentos
-            )
+            diagnostico = gerar_diagnostico(resumo_categoria, df_parcelamentos)
 
             recomendacoes = gerar_recomendacoes(
                 resumo_categoria,
@@ -285,8 +290,10 @@ if analisar:
             st.session_state["diagnostico"] = diagnostico
             st.session_state["recomendacoes"] = recomendacoes
             st.session_state["resumo_parcelas"] = resumo_parcelas
+            st.session_state["qtd_pdfs"] = len(pdfs)
 
         st.success("Análise concluída com sucesso.")
+
 
 if pagina == "Debug PDF":
 
@@ -333,138 +340,145 @@ resumo_categoria = st.session_state["resumo_categoria"]
 df_parcelamentos = st.session_state["df_parcelamentos"]
 diagnostico = st.session_state["diagnostico"]
 recomendacoes = st.session_state["recomendacoes"]
+qtd_pdfs = st.session_state.get("qtd_pdfs", 0)
 
 
 if pagina == "Dashboard":
 
-    st.markdown('<div class="section-title">Resumo financeiro</div>', unsafe_allow_html=True)
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    col1.metric("Gasto total", moeda(diagnostico["gasto_total"]))
-    col2.metric("Parcelas futuras", moeda(diagnostico["parcelas_futuras"]))
-    col3.metric("Score financeiro", f"{diagnostico['score']}/100")
-    col4.metric("Maior gasto", diagnostico["categoria_principal"])
-
-    st.markdown('<div class="section-title">Distribuição das despesas</div>', unsafe_allow_html=True)
-
     df_grafico = preparar_resumo_para_grafico(resumo_categoria)
+    df_faturas = preparar_gastos_por_fatura(df_base)
 
-    colgraf1, colgraf2 = st.columns([2, 1])
+    gasto_total = diagnostico["gasto_total"]
+    maior_categoria = diagnostico["categoria_principal"]
+    score = diagnostico["score"]
+    parcelas_futuras = diagnostico["parcelas_futuras"]
 
-    with colgraf1:
+    col1, col2, col3, col4, col5 = st.columns(5)
 
-        fig = px.pie(
-            df_grafico,
-            names="Categoria",
-            values="Valor",
-            hole=0.45,
-            title="💰 Para onde foi seu dinheiro"
-        )
+    col1.metric("Gasto total", moeda(gasto_total))
+    col2.metric("Faturas analisadas", qtd_pdfs)
+    col3.metric("Parcelas futuras", moeda(parcelas_futuras))
+    col4.metric("Score financeiro", f"{score}/100")
+    col5.metric("Maior gasto", maior_categoria)
 
-        fig.update_traces(
-            textposition="inside",
-            textinfo="percent+label",
-            textfont_size=16,
-            pull=[0.04 if i == 0 else 0 for i in range(len(df_grafico))]
-        )
+    st.markdown('<div class="section-title">Principais despesas por categoria</div>', unsafe_allow_html=True)
 
-        fig.update_layout(
-            height=750,
-            showlegend=False,
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(
-                color="white",
-                size=16
-            ),
-            title_font_size=28,
-            margin=dict(
-                t=80,
-                b=20,
-                l=20,
-                r=20
-            )
-        )
+    top_categorias = df_grafico.head(10).sort_values("Valor", ascending=True)
 
-        st.plotly_chart(fig, use_container_width=True)
+    fig_cat = px.bar(
+        top_categorias,
+        x="Valor",
+        y="Categoria",
+        orientation="h",
+        text="Valor",
+        title=None
+    )
 
-    with colgraf2:
+    fig_cat.update_traces(
+        texttemplate="R$ %{text:,.2f}",
+        textposition="outside",
+        marker_line_width=0
+    )
 
-        st.subheader("📊 Ranking de gastos")
+    fig_cat.update_layout(
+        height=520,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="white", size=15),
+        xaxis_title="",
+        yaxis_title="",
+        margin=dict(t=20, b=40, l=20, r=80),
+        showlegend=False
+    )
 
-        ranking = df_grafico.copy()
+    fig_cat.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+    fig_cat.update_yaxes(showgrid=False)
 
-        ranking["Valor"] = ranking["Valor"].apply(moeda)
+    st.plotly_chart(fig_cat, use_container_width=True)
 
-        st.dataframe(
-            ranking,
-            use_container_width=True,
-            hide_index=True
-        )
+    st.markdown('<div class="section-title">Resumo executivo</div>', unsafe_allow_html=True)
 
-        st.markdown("---")
+    c1, c2 = st.columns([1, 1])
 
-        maior_categoria = df_grafico.iloc[0]["Categoria"]
+    with c1:
         maior_valor = df_grafico.iloc[0]["Valor"]
-
-        percentual = (
-            maior_valor /
-            df_grafico["Valor"].sum()
-        ) * 100
+        percentual = (maior_valor / df_grafico["Valor"].sum()) * 100
 
         st.info(
             f"""
-            🎯 **Maior gasto**
+            🎯 **Maior concentração de gasto**
 
-            **{maior_categoria}**
+            Categoria: **{df_grafico.iloc[0]["Categoria"]}**
 
             Valor: **{moeda(maior_valor)}**
 
-            Participação: **{percentual:.1f}%**
+            Participação no total: **{percentual:.1f}%**
             """
         )
 
-    st.markdown('<div class="section-title">Despesas por fatura</div>', unsafe_allow_html=True)
+    with c2:
+        outros_df = auditar_outros(df_base, top=50)
+        valor_outros = 0
 
-    df_faturas = preparar_gastos_por_fatura(df_base)
+        if outros_df is not None and not outros_df.empty:
+            try:
+                valor_outros = float(outros_df.sum().sum())
+            except Exception:
+                valor_outros = 0
+
+        st.info(
+            f"""
+            🤖 **Qualidade da classificação**
+
+            O sistema combinou regras nacionais com aprendizado do usuário.
+
+            Categoria Outros: **{moeda(valor_outros)}**
+
+            Objetivo: manter Outros abaixo de **5%**.
+            """
+        )
+
+    st.markdown('<div class="section-title">Gasto total por fatura</div>', unsafe_allow_html=True)
 
     if df_faturas.empty:
         st.warning("Não foi possível identificar as despesas por fatura.")
     else:
-        fig_bar = px.bar(
-            df_faturas,
+        fig_fat = px.bar(
+            df_faturas.sort_values("Valor", ascending=False),
             x="Fatura",
             y="Valor",
             text="Valor",
-            title="Gasto total por fatura"
+            title=None
         )
 
-        fig_bar.update_traces(
+        fig_fat.update_traces(
             texttemplate="R$ %{text:,.2f}",
-            textposition="outside"
+            textposition="outside",
+            marker_line_width=0
         )
 
-        fig_bar.update_layout(
-            height=520,
+        fig_fat.update_layout(
+            height=430,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white", size=15),
-            title_font_size=26,
-            xaxis_title="Fatura",
-            yaxis_title="Valor gasto",
-            margin=dict(t=80, b=80, l=40, r=30)
+            font=dict(color="white", size=14),
+            xaxis_title="",
+            yaxis_title="",
+            margin=dict(t=20, b=70, l=40, r=30),
+            showlegend=False
         )
 
-        st.plotly_chart(fig_bar, use_container_width=True)
+        fig_fat.update_xaxes(showgrid=False)
+        fig_fat.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
 
-    st.markdown('<div class="section-title">Auditoria dos Outros</div>', unsafe_allow_html=True)
+        st.plotly_chart(fig_fat, use_container_width=True)
 
-    outros = auditar_outros(df_base, top=50)
-    st.dataframe(outros.round(2), use_container_width=True)
+    st.markdown('<div class="section-title">Tabela por categoria</div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">Prévia das transações</div>', unsafe_allow_html=True)
-    st.dataframe(df_transacoes.head(20), use_container_width=True)
+    tabela_categoria = df_grafico.copy()
+    tabela_categoria["Valor"] = tabela_categoria["Valor"].apply(moeda)
+
+    st.dataframe(tabela_categoria, use_container_width=True, hide_index=True)
 
 
 elif pagina == "Gastos":
