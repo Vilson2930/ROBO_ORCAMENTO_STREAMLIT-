@@ -73,16 +73,16 @@ def preparar_resumo_para_grafico(resumo):
     if isinstance(df.index, pd.Index):
         df = df.reset_index()
 
-    colunas = list(df.columns)
-
     categoria_col = None
     valor_col = None
 
-    for col in colunas:
-        if "categoria" in str(col).lower() or str(col).lower() in ["index"]:
+    for col in df.columns:
+        col_lower = str(col).lower()
+
+        if "categoria" in col_lower or col_lower == "index":
             categoria_col = col
 
-        if "valor" in str(col).lower() or "total" in str(col).lower() or "gasto" in str(col).lower():
+        if "valor" in col_lower or "total" in col_lower or "gasto" in col_lower:
             valor_col = col
 
     if categoria_col is None:
@@ -99,6 +99,44 @@ def preparar_resumo_para_grafico(resumo):
     return df
 
 
+def preparar_gastos_por_fatura(df):
+    base = df.copy()
+
+    coluna_fatura = None
+    coluna_valor = None
+
+    for col in base.columns:
+        col_lower = str(col).lower()
+
+        if col_lower in ["arquivo", "fatura", "pdf", "nome_arquivo"] or "arquivo" in col_lower or "fatura" in col_lower:
+            coluna_fatura = col
+
+        if "valor" in col_lower or "total" in col_lower or "gasto" in col_lower:
+            coluna_valor = col
+
+    if coluna_valor is None:
+        numeros = base.select_dtypes(include="number").columns
+        if len(numeros) == 0:
+            return pd.DataFrame(columns=["Fatura", "Valor"])
+        coluna_valor = numeros[0]
+
+    if coluna_fatura is None:
+        base["Fatura"] = "Fatura consolidada"
+        coluna_fatura = "Fatura"
+
+    resultado = (
+        base.groupby(coluna_fatura)[coluna_valor]
+        .sum()
+        .reset_index()
+        .sort_values(coluna_valor, ascending=False)
+    )
+
+    resultado.columns = ["Fatura", "Valor"]
+    resultado = resultado[resultado["Valor"] > 0]
+
+    return resultado
+
+
 st.set_page_config(
     page_title="Orçamento Inteligente",
     page_icon="💰",
@@ -108,10 +146,6 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .main {
-        background-color: #0E1117;
-    }
-
     .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
@@ -119,17 +153,17 @@ st.markdown(
 
     .hero-box {
         background: linear-gradient(135deg, #102A43, #243B53);
-        padding: 32px;
-        border-radius: 18px;
-        margin-bottom: 25px;
-        border: 1px solid rgba(255,255,255,0.08);
+        padding: 34px;
+        border-radius: 20px;
+        margin-bottom: 28px;
+        border: 1px solid rgba(255,255,255,0.10);
     }
 
     .hero-title {
-        font-size: 46px;
+        font-size: 48px;
         font-weight: 800;
         color: white;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
     }
 
     .hero-subtitle {
@@ -139,29 +173,22 @@ st.markdown(
     }
 
     .section-title {
-        font-size: 26px;
-        font-weight: 700;
+        font-size: 28px;
+        font-weight: 800;
         color: white;
-        margin-top: 20px;
-        margin-bottom: 10px;
-    }
-
-    .info-card {
-        background-color: #161B22;
-        padding: 18px;
-        border-radius: 14px;
-        border: 1px solid rgba(255,255,255,0.08);
+        margin-top: 28px;
+        margin-bottom: 18px;
     }
 
     div[data-testid="stMetric"] {
         background-color: #161B22;
-        padding: 18px;
-        border-radius: 14px;
+        padding: 20px;
+        border-radius: 16px;
         border: 1px solid rgba(255,255,255,0.08);
     }
 
     div[data-testid="stMetricValue"] {
-        font-size: 26px;
+        font-size: 28px;
         color: #FFFFFF;
     }
 
@@ -323,37 +350,116 @@ if pagina == "Dashboard":
 
     df_grafico = preparar_resumo_para_grafico(resumo_categoria)
 
-    colgraf1, colgraf2 = st.columns([1.15, 1])
+    colgraf1, colgraf2 = st.columns([2, 1])
 
     with colgraf1:
+
         fig = px.pie(
             df_grafico,
             names="Categoria",
             values="Valor",
-            hole=0.42,
-            title="Despesas por categoria"
+            hole=0.45,
+            title="💰 Para onde foi seu dinheiro"
         )
 
         fig.update_traces(
             textposition="inside",
-            textinfo="percent+label"
+            textinfo="percent+label",
+            textfont_size=16,
+            pull=[0.04 if i == 0 else 0 for i in range(len(df_grafico))]
         )
 
         fig.update_layout(
+            height=750,
+            showlegend=False,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(0,0,0,0)",
-            font=dict(color="white"),
-            legend_title_text="Categorias",
-            margin=dict(t=60, b=20, l=20, r=20)
+            font=dict(
+                color="white",
+                size=16
+            ),
+            title_font_size=28,
+            margin=dict(
+                t=80,
+                b=20,
+                l=20,
+                r=20
+            )
         )
 
         st.plotly_chart(fig, use_container_width=True)
 
     with colgraf2:
-        st.subheader("Ranking de gastos")
-        st.dataframe(df_grafico.round(2), use_container_width=True, hide_index=True)
+
+        st.subheader("📊 Ranking de gastos")
+
+        ranking = df_grafico.copy()
+
+        ranking["Valor"] = ranking["Valor"].apply(moeda)
+
+        st.dataframe(
+            ranking,
+            use_container_width=True,
+            hide_index=True
+        )
+
+        st.markdown("---")
+
+        maior_categoria = df_grafico.iloc[0]["Categoria"]
+        maior_valor = df_grafico.iloc[0]["Valor"]
+
+        percentual = (
+            maior_valor /
+            df_grafico["Valor"].sum()
+        ) * 100
+
+        st.info(
+            f"""
+            🎯 **Maior gasto**
+
+            **{maior_categoria}**
+
+            Valor: **{moeda(maior_valor)}**
+
+            Participação: **{percentual:.1f}%**
+            """
+        )
+
+    st.markdown('<div class="section-title">Despesas por fatura</div>', unsafe_allow_html=True)
+
+    df_faturas = preparar_gastos_por_fatura(df_base)
+
+    if df_faturas.empty:
+        st.warning("Não foi possível identificar as despesas por fatura.")
+    else:
+        fig_bar = px.bar(
+            df_faturas,
+            x="Fatura",
+            y="Valor",
+            text="Valor",
+            title="Gasto total por fatura"
+        )
+
+        fig_bar.update_traces(
+            texttemplate="R$ %{text:,.2f}",
+            textposition="outside"
+        )
+
+        fig_bar.update_layout(
+            height=520,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", size=15),
+            title_font_size=26,
+            xaxis_title="Fatura",
+            yaxis_title="Valor gasto",
+            margin=dict(t=80, b=80, l=40, r=30)
+        )
+
+        st.plotly_chart(fig_bar, use_container_width=True)
 
     st.markdown('<div class="section-title">Auditoria dos Outros</div>', unsafe_allow_html=True)
+
     outros = auditar_outros(df_base, top=50)
     st.dataframe(outros.round(2), use_container_width=True)
 
