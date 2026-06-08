@@ -1,7 +1,7 @@
 # ============================================================
 # CATEGORY ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão comercial genérica
+# Versão comercial genérica ampliada
 # ============================================================
 
 import re
@@ -21,102 +21,136 @@ def normalizar_texto(texto):
 REGRAS_CATEGORIAS = {
 
     "Combustível": [
-        "POSTO", "AUTO POSTO", "COMBUSTIVEL", "GASOLINA",
-        "ETANOL", "DIESEL", "IPIRANGA", "SHELL", "PETROBRAS",
-        "ALE ", "RAIZEN"
+        "POSTO", "AUTO POSTO", "REDE DE POSTOS", "COMBUSTIVEL",
+        "COMBUSTÍVEL", "GASOLINA", "ETANOL", "DIESEL", "FLEX",
+        "IPIRANGA", "SHELL", "PETROBRAS", "VIBRA", "RAIZEN",
+        "ALE", "BR MANIA", "TEXACO", "PETRO", "ABASTECE",
+        "ABASTECIMENTO"
     ],
 
     "Supermercado": [
-        "SUPERMERCADO", "MERCADO", "MERCEARIA", "ATACADO",
-        "ATACADAO", "ASSAI", "CARREFOUR", "EXTRA", "BIG",
-        "CONDOR", "MUFFATO", "SUPERPAO", "HORTIFRUTI",
-        "HORTI", "EMPORIO", "ALIMENTOS"
+        "SUPERMERCADO", "MERCADO", "MERCEARIA", "MINI MERCADO",
+        "ATACADO", "ATACADAO", "ATACADÃO", "ASSAI", "ASSAÍ",
+        "CARREFOUR", "EXTRA", "BIG", "WALMART", "MUFFATO",
+        "CONDOR", "FORT", "MAXXI", "COMPER", "MATEUS",
+        "SUPERPAO", "SUPERPÃO", "HORTIFRUTI", "HORTI", "EMPORIO",
+        "EMPÓRIO", "ALIMENTOS", "CESTA", "SACOLAO", "SACOLÃO",
+        "QUITANDA", "VERDURAO", "VERDURÃO", "AÇOUGUE", "ACOUGUE"
     ],
 
     "Alimentação fora de casa": [
-        "RESTAURANTE", "RESTAUR", "LANCH", "LANCHONETE",
-        "PIZZARIA", "PIZZA", "BURGER", "HAMBURGUER",
-        "IFOOD", "UBER EATS", "AIQFOME", "DELIVERY",
-        "PADARIA", "PANIFICADORA", "CONFEITARIA",
-        "CAFE", "COFFEE", "SORVETE", "PASTEL",
-        "CHURRASCARIA", "GRILL", "CANTINA", "BAR "
+        "RESTAURANTE", "RESTAUR", "REST ", "LANCH", "LANCHONETE",
+        "LANCHES", "PIZZARIA", "PIZZA", "BURGER", "HAMBURGUER",
+        "HAMBURGUERIA", "IFOOD", "UBER EATS", "RAPPI", "AIQFOME",
+        "DELIVERY", "PADARIA", "PANIFICADORA", "CONFEITARIA",
+        "CAFE", "CAFÉ", "COFFEE", "SORVETE", "SORVETERIA",
+        "PASTEL", "PASTELARIA", "CHURRASCARIA", "GRILL",
+        "CANTINA", "BAR", "PUB", "BISTRO", "ESFIHA", "SUSHI",
+        "TEMAKERIA", "AÇAÍ", "ACAI", "COZINHA", "MARMITA",
+        "MARMITARIA", "DOCERIA", "BOLOS", "BOLO", "CHOCOLATE"
     ],
 
     "Saúde": [
-        "FARMACIA", "DROGARIA", "DROGA", "DROGASIL",
-        "RAIA", "PACHECO", "PANVEL", "CLINICA",
-        "HOSPITAL", "LABORATORIO", "EXAME", "ODONTO",
-        "DENTISTA", "MEDICO", "MEDICA", "OTICA",
-        "ACADEMIA", "SMART FIT", "BIO RITMO", "BLUEFIT"
+        "FARMACIA", "FARMÁCIA", "DROGARIA", "DROGA", "DROGASIL",
+        "RAIA", "PACHECO", "PANVEL", "NISSEI", "CLINICA", "CLÍNICA",
+        "HOSPITAL", "LABORATORIO", "LABORATÓRIO", "LAB ", "EXAME",
+        "EXAMES", "ODONTO", "ODONTOLOGIA", "DENTISTA", "MEDICO",
+        "MÉDICO", "MEDICA", "MÉDICA", "CONSULTORIO", "CONSULTÓRIO",
+        "OTICA", "ÓTICA", "OFTALMO", "CARDIO", "DERMATO",
+        "FISIOTERAPIA", "FISIO", "PSICOLOGIA", "TERAPIA",
+        "ACADEMIA", "SMART FIT", "BIO RITMO", "BLUEFIT", "GYM",
+        "FITNESS", "CROSSFIT", "MUSCULACAO", "MUSCULAÇÃO"
     ],
 
     "Transporte": [
-        "UBER", "99", "TAXI", "CABIFY", "PASSAGEM",
-        "METRO", "ONIBUS", "ÔNIBUS", "PEDAGIO",
-        "ESTACIONAMENTO", "PARKING", "LOCADORA",
-        "LOCALIZA", "MOVIDA", "UNIDAS"
+        "UBER", "99", "TAXI", "TÁXI", "CABIFY", "PASSAGEM",
+        "METRO", "METRÔ", "ONIBUS", "ÔNIBUS", "RODOVIARIA",
+        "RODOVIÁRIA", "PEDAGIO", "PEDÁGIO", "ESTACIONAMENTO",
+        "PARKING", "LOCADORA", "LOCALIZA", "MOVIDA", "UNIDAS",
+        "SEM PARAR", "CONECTCAR", "VELOE", "RENT A CAR"
     ],
 
     "Casa / Utilidades": [
         "HOME CENTER", "CONSTRUCAO", "CONSTRUÇÃO", "MATERIAL",
-        "FERRAGEM", "PARAFUSO", "TINTAS", "MOVEIS",
-        "MÓVEIS", "ELETRO", "UTILIDADES", "CASA",
-        "LEROY", "TELHANORTE", "TOK STOK", "CAMICADO",
-        "MAGAZINE LUIZA", "MAGALU"
+        "MATERIAL DE CONSTRUCAO", "MATERIAL DE CONSTRUÇÃO",
+        "FERRAGEM", "FERRAGENS", "PARAFUSO", "PARAFUSOS",
+        "TINTAS", "TINTA", "MOVEIS", "MÓVEIS", "ELETRO",
+        "ELETRODOMESTICO", "ELETRODOMÉSTICO", "UTILIDADES",
+        "CASA", "LEROY", "LEROY MERLIN", "TELHANORTE", "CASSOL",
+        "TOK STOK", "TOKSTOK", "CAMICADO", "CAMICADO", "DECOR",
+        "DECORACAO", "DECORAÇÃO", "MADEIRA", "MDF", "ILUMINACAO",
+        "ILUMINAÇÃO", "MAGAZINE LUIZA", "MAGALU", "CASAS BAHIA",
+        "PONTO FRIO", "FAST SHOP"
     ],
 
     "Vestuário / Compras": [
-        "MODAS", "ROUPAS", "VESTUARIO", "VESTUÁRIO",
-        "CALCADOS", "CALÇADOS", "SAPATARIA", "TENIS",
-        "TÊNIS", "RENNER", "RIACHUELO", "C A ",
-        "CEA", "MARISA", "ZARA", "SHEIN", "SHOPEE",
-        "MERCADO LIVRE", "AMERICANAS", "HAVAN",
-        "PRIVALIA", "LOJA", "STORE", "SHOPPING"
+        "MODAS", "ROUPAS", "VESTUARIO", "VESTUÁRIO", "CALCADOS",
+        "CALÇADOS", "SAPATARIA", "TENIS", "TÊNIS", "RENNER",
+        "RIACHUELO", "MARISA", "CEA", "C A", "C&A", "ZARA",
+        "SHEIN", "SHOPEE", "MERCADO LIVRE", "AMERICANAS", "HAVAN",
+        "PRIVALIA", "LOJA", "STORE", "SHOPPING", "CENTER",
+        "BOUTIQUE", "OUTLET", "CONFEC", "CONFECCAO", "CONFECÇÃO",
+        "COSMETICOS", "COSMÉTICOS", "PERFUMARIA", "BELEZA",
+        "O BOTICARIO", "BOTICARIO", "NATURA", "AVON", "SEPHORA",
+        "DAFITI", "NETSHOES", "CENTAURO", "DECATHLON"
     ],
 
     "Assinaturas / Digital": [
         "NETFLIX", "SPOTIFY", "AMAZON PRIME", "AMAZON DIGITAL",
-        "GOOGLE", "APPLE", "MICROSOFT", "YOUTUBE",
-        "DISNEY", "HBO", "MAX", "GLOBOPLAY",
-        "CHATGPT", "OPENAI", "CANVA", "ADOBE"
+        "GOOGLE", "APPLE", "MICROSOFT", "YOUTUBE", "DISNEY",
+        "DISNEY PLUS", "HBO", "MAX", "GLOBOPLAY", "PARAMOUNT",
+        "STARPLUS", "STAR PLUS", "CHATGPT", "OPENAI", "CANVA",
+        "ADOBE", "DROPBOX", "ICLOUD", "ONE DRIVE", "ONEDRIVE",
+        "NORTON", "AVAST", "KASPERSKY", "HOSTINGER", "GODADDY",
+        "DOMAIN", "DOMINIO", "DOMÍNIO"
     ],
 
     "Educação": [
-        "ESCOLA", "COLEGIO", "COLÉGIO", "FACULDADE",
-        "UNIVERSIDADE", "CURSO", "EDUCACAO", "EDUCAÇÃO",
-        "LIVRARIA", "MATERIAL ESCOLAR", "UDEMY", "ALURA"
+        "ESCOLA", "COLEGIO", "COLÉGIO", "FACULDADE", "UNIVERSIDADE",
+        "CURSO", "EDUCACAO", "EDUCAÇÃO", "LIVRARIA", "MATERIAL ESCOLAR",
+        "UDEMY", "ALURA", "HOTMART", "EDUZZ", "KIRVANO", "KIWIFY",
+        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO"
     ],
 
     "Lazer / Viagens": [
-        "HOTEL", "POUSADA", "AIRBNB", "BOOKING",
-        "DECOLAR", "CVC", "CINEMA", "CINE",
-        "INGRESSO", "EVENTO", "SHOW", "TEATRO",
-        "PARQUE", "CLUBE", "BAR", "DRINKS"
+        "HOTEL", "POUSADA", "AIRBNB", "BOOKING", "DECOLAR", "CVC",
+        "AZUL", "GOL", "LATAM", "PASSAREDO", "CINEMA", "CINE",
+        "INGRESSO", "INGRESSO COM", "EVENTO", "EVENTOS", "SHOW",
+        "TEATRO", "PARQUE", "CLUBE", "DRINKS", "BALADA", "FESTA",
+        "TURISMO", "VIAGEM", "VIAGENS", "RESORT"
     ],
 
     "Serviços / Pagamentos pessoais": [
-        "BARBEARIA", "SALAO", "SALÃO", "BELEZA",
-        "MANICURE", "LAVANDERIA", "LAVA JATO",
-        "SERVICOS", "SERVIÇOS", "CONSULTORIA",
-        "PIX", "TRANSFERENCIA", "TRANSFERÊNCIA",
-        "PAGAMENTO", "MAXISCARD"
+        "BARBEARIA", "SALAO", "SALÃO", "CABELEIREIRO", "MANICURE",
+        "PEDICURE", "LAVANDERIA", "LAVA JATO", "SERVICOS", "SERVIÇOS",
+        "CONSULTORIA", "MANUTENCAO", "MANUTENÇÃO", "REPARO",
+        "ASSISTENCIA", "ASSISTÊNCIA", "OFICINA", "MECANICA", "MECÂNICA",
+        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA"
     ],
 
     "Pagamentos / Intermediadores": [
-        "MERCADO PAGO", "PICPAY", "PAGSEGURO", "GETNET",
-        "STONE", "CIELO", "REDE", "SUMUP", "TON",
-        "MP ", "BLU INSTITUICAO", "INSTITUICAO DE PAG"
+        "MERCADO PAGO", "PICPAY", "PAGSEGURO", "GETNET", "STONE",
+        "CIELO", "REDE", "SUMUP", "TON", "MP ", "BLU INSTITUICAO",
+        "INSTITUICAO DE PAG", "INSTITUIÇÃO DE PAG", "ADIQ", "MAXISCARD",
+        "PAYPAL", "EBANX", "ASAAS", "IUGU", "PAGAR ME", "PAGARME"
     ],
 
     "Documentação / Impostos": [
-        "CARTORIO", "CARTÓRIO", "DETRAN", "PREFEITURA",
-        "IPVA", "MULTA", "TRIBUTO", "IMPOSTO",
-        "TAXA", "RECEITA FEDERAL"
+        "CARTORIO", "CARTÓRIO", "DETRAN", "PREFEITURA", "IPVA",
+        "MULTA", "TRIBUTO", "IMPOSTO", "TAXA", "RECEITA FEDERAL",
+        "DARF", "GUIA", "LICENCIAMENTO", "REGISTRO CIVIL"
     ],
 
     "Pets": [
-        "PET", "PETZ", "COBASI", "VETERINARIO",
-        "VETERINÁRIO", "RACAO", "RAÇÃO", "AGROPECUARIA"
+        "PET", "PETZ", "COBASI", "VETERINARIO", "VETERINÁRIO",
+        "VETERINARIA", "VETERINÁRIA", "RACAO", "RAÇÃO",
+        "AGROPECUARIA", "AGROPECUÁRIA", "BANHO E TOSA", "TOSA"
+    ],
+
+    "Financeiro / Bancário": [
+        "SEGURO", "SEGURADORA", "PREVIDENCIA", "PREVIDÊNCIA",
+        "CONSORCIO", "CONSÓRCIO", "BANCO", "FINANCEIRA",
+        "CARTAO", "CARTÃO", "ANUIDADE", "JUROS", "ENCARGOS"
     ],
 }
 
@@ -125,9 +159,16 @@ def classificar_categoria(merchant):
 
     texto = normalizar_texto(merchant)
 
+    if not texto:
+        return "Outros"
+
     for categoria, palavras in REGRAS_CATEGORIAS.items():
         for palavra in palavras:
             palavra_norm = normalizar_texto(palavra)
+
+            if not palavra_norm:
+                continue
+
             if palavra_norm in texto:
                 return categoria
 
@@ -236,7 +277,9 @@ def resumo_category_engine(df):
         else 0
     )
 
-    if percentual_outros <= 10:
+    if percentual_outros <= 5:
+        status = "EXCELENTE"
+    elif percentual_outros <= 10:
         status = "APROVADO"
     elif percentual_outros <= 15:
         status = "ACEITÁVEL"
