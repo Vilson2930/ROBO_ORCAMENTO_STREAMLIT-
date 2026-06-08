@@ -2,6 +2,7 @@ streamlit
 pandas
 numpy
 pypdf
+cryptography>=42.0.0
 openpyxl
 plotly
 matplotlib
