@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.express as px
 from pathlib import Path
 
 from engine.pdf_engine import processar_pdfs
@@ -59,19 +60,130 @@ def salvar_regra_usuario(merchant, categoria):
     return True
 
 
+def moeda(valor):
+    try:
+        return f"R$ {float(valor):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except Exception:
+        return "R$ 0,00"
+
+
+def preparar_resumo_para_grafico(resumo):
+    df = resumo.copy()
+
+    if isinstance(df.index, pd.Index):
+        df = df.reset_index()
+
+    colunas = list(df.columns)
+
+    categoria_col = None
+    valor_col = None
+
+    for col in colunas:
+        if "categoria" in str(col).lower() or str(col).lower() in ["index"]:
+            categoria_col = col
+
+        if "valor" in str(col).lower() or "total" in str(col).lower() or "gasto" in str(col).lower():
+            valor_col = col
+
+    if categoria_col is None:
+        categoria_col = df.columns[0]
+
+    if valor_col is None:
+        valor_col = df.select_dtypes(include="number").columns[0]
+
+    df = df[[categoria_col, valor_col]].copy()
+    df.columns = ["Categoria", "Valor"]
+    df = df[df["Valor"] > 0]
+    df = df.sort_values("Valor", ascending=False)
+
+    return df
+
+
 st.set_page_config(
     page_title="Orçamento Inteligente",
     page_icon="💰",
     layout="wide"
 )
 
-st.title("💰 Orçamento Inteligente")
+st.markdown(
+    """
+    <style>
+    .main {
+        background-color: #0E1117;
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 2rem;
+    }
+
+    .hero-box {
+        background: linear-gradient(135deg, #102A43, #243B53);
+        padding: 32px;
+        border-radius: 18px;
+        margin-bottom: 25px;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .hero-title {
+        font-size: 46px;
+        font-weight: 800;
+        color: white;
+        margin-bottom: 10px;
+    }
+
+    .hero-subtitle {
+        font-size: 19px;
+        color: #D9E2EC;
+        line-height: 1.6;
+    }
+
+    .section-title {
+        font-size: 26px;
+        font-weight: 700;
+        color: white;
+        margin-top: 20px;
+        margin-bottom: 10px;
+    }
+
+    .info-card {
+        background-color: #161B22;
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    div[data-testid="stMetric"] {
+        background-color: #161B22;
+        padding: 18px;
+        border-radius: 14px;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    div[data-testid="stMetricValue"] {
+        font-size: 26px;
+        color: #FFFFFF;
+    }
+
+    div[data-testid="stMetricLabel"] {
+        color: #AAB7C4;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 st.markdown(
     """
-    Envie suas faturas, descubra para onde seu dinheiro está indo,
-    veja compras parceladas e receba um diagnóstico simples.
-    """
+    <div class="hero-box">
+        <div class="hero-title">💰 Orçamento Inteligente</div>
+        <div class="hero-subtitle">
+            Envie suas faturas, descubra para onde seu dinheiro está indo,
+            identifique compras parceladas, reduza desperdícios e receba um diagnóstico financeiro claro.
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 
 st.sidebar.title("Menu")
@@ -102,7 +214,7 @@ senha_pdf = st.sidebar.text_input(
     type="password"
 )
 
-analisar = st.sidebar.button("Analisar")
+analisar = st.sidebar.button("Analisar", use_container_width=True)
 
 if analisar:
 
@@ -198,34 +310,65 @@ recomendacoes = st.session_state["recomendacoes"]
 
 if pagina == "Dashboard":
 
-    st.header("Resumo Financeiro")
+    st.markdown('<div class="section-title">Resumo financeiro</div>', unsafe_allow_html=True)
 
     col1, col2, col3, col4 = st.columns(4)
 
-    col1.metric("Gasto Total", f"R$ {diagnostico['gasto_total']:,.2f}")
-    col2.metric("Parcelas Futuras", f"R$ {diagnostico['parcelas_futuras']:,.2f}")
-    col3.metric("Score Financeiro", f"{diagnostico['score']}/100")
-    col4.metric("Maior Gasto", diagnostico["categoria_principal"])
+    col1.metric("Gasto total", moeda(diagnostico["gasto_total"]))
+    col2.metric("Parcelas futuras", moeda(diagnostico["parcelas_futuras"]))
+    col3.metric("Score financeiro", f"{diagnostico['score']}/100")
+    col4.metric("Maior gasto", diagnostico["categoria_principal"])
 
-    st.subheader("Gastos por Categoria")
-    st.dataframe(resumo_categoria.round(2), use_container_width=True)
+    st.markdown('<div class="section-title">Distribuição das despesas</div>', unsafe_allow_html=True)
 
-    st.subheader("Auditoria dos Outros")
+    df_grafico = preparar_resumo_para_grafico(resumo_categoria)
+
+    colgraf1, colgraf2 = st.columns([1.15, 1])
+
+    with colgraf1:
+        fig = px.pie(
+            df_grafico,
+            names="Categoria",
+            values="Valor",
+            hole=0.42,
+            title="Despesas por categoria"
+        )
+
+        fig.update_traces(
+            textposition="inside",
+            textinfo="percent+label"
+        )
+
+        fig.update_layout(
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white"),
+            legend_title_text="Categorias",
+            margin=dict(t=60, b=20, l=20, r=20)
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    with colgraf2:
+        st.subheader("Ranking de gastos")
+        st.dataframe(df_grafico.round(2), use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="section-title">Auditoria dos Outros</div>', unsafe_allow_html=True)
     outros = auditar_outros(df_base, top=50)
     st.dataframe(outros.round(2), use_container_width=True)
 
-    st.subheader("Prévia das Transações")
+    st.markdown('<div class="section-title">Prévia das transações</div>', unsafe_allow_html=True)
     st.dataframe(df_transacoes.head(20), use_container_width=True)
 
 
 elif pagina == "Gastos":
 
-    st.header("Para Onde Foi Seu Dinheiro")
+    st.header("Para onde foi seu dinheiro")
 
     st.subheader("Categorias")
     st.dataframe(resumo_categoria.round(2), use_container_width=True)
 
-    st.subheader("Top Estabelecimentos")
+    st.subheader("Top estabelecimentos")
     st.dataframe(top_merchants(df_base, top=30).round(2), use_container_width=True)
 
     st.subheader("Transações")
@@ -234,25 +377,25 @@ elif pagina == "Gastos":
 
 elif pagina == "Parcelamentos":
 
-    st.header("Compras Parceladas")
+    st.header("Compras parceladas")
     st.dataframe(df_parcelamentos.round(2), use_container_width=True)
 
 
 elif pagina == "Diagnóstico":
 
-    st.header("Diagnóstico Financeiro")
+    st.header("Diagnóstico financeiro")
     st.text(gerar_relatorio_simples(diagnostico))
 
 
 elif pagina == "Plano de Ação":
 
-    st.header("Plano de Ação")
+    st.header("Plano de ação")
     st.text(gerar_plano_acao(recomendacoes))
 
 
 elif pagina == "Aprendizado do Robô":
 
-    st.header("Aprendizado do Robô")
+    st.header("Aprendizado do robô")
 
     st.info(
         "Aqui você ensina o robô a classificar estabelecimentos que caíram em Outros. "
@@ -280,7 +423,7 @@ elif pagina == "Aprendizado do Robô":
         CATEGORIAS_DISPONIVEIS
     )
 
-    if st.button("Salvar aprendizado"):
+    if st.button("Salvar aprendizado", use_container_width=True):
 
         ok = salvar_regra_usuario(
             merchant=merchant_escolhido,
