@@ -3,5 +3,6 @@ pandas
 numpy
 pypdf
 openpyxl
-matplotlib
 plotly
+matplotlib
+reportlab
