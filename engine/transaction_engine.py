@@ -1,8 +1,7 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — reconhece somente débitos reais da fatura
-# Bloqueia textos institucionais, pagamentos, créditos e totais
+# Débitos reais + compras parceladas em bloco
 # ============================================================
 
 import re
@@ -53,6 +52,15 @@ PADRAO_EXTENSO_VALOR = re.compile(
     re.IGNORECASE
 )
 
+PADRAO_VALOR = re.compile(r"R\$\s*([\d\.]+,\d{2})", re.IGNORECASE)
+
+PADRAO_NX_DE = re.compile(
+    r"(?P<qtd>\d{1,2})\s*X\s*DE\s*R\$\s*(?P<valor>[\d\.]+,\d{2})",
+    re.IGNORECASE
+)
+
+PADRAO_DATA_CURTA = re.compile(r"\b\d{2}/\d{2}(?:/\d{4})?\b")
+
 
 def normalizar_texto(texto):
     texto = str(texto or "")
@@ -65,7 +73,11 @@ def normalizar_texto(texto):
 
 def limpar_descricao(descricao):
     descricao = str(descricao or "")
+    descricao = re.sub(r"R\$\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\d{1,2}\s*X\s*DE\s*R?\$?\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", descricao)
     descricao = re.sub(r"R\$", "", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"[*]+", " ", descricao)
     descricao = re.sub(r"\s+", " ", descricao)
     return descricao.strip(" -")
 
@@ -101,13 +113,10 @@ def linha_bloqueada(linha):
     if " - +" in texto or "+ R$" in texto or " + " in texto:
         return True
 
-    if len(texto) > 120:
+    if len(texto) > 160:
         return True
 
-    if texto.count("*") >= 4:
-        return True
-
-    if texto.count("/") > 4:
+    if texto.count("*") >= 8:
         return True
 
     return False
@@ -122,7 +131,7 @@ def descricao_valida(descricao):
     if len(texto) < 3:
         return False
 
-    if len(texto) > 80:
+    if len(texto) > 100:
         return False
 
     if not re.search(r"[A-Z]", texto):
@@ -155,7 +164,10 @@ def extrair_linha_numerica(linha, arquivo):
         "data": data,
         "descricao_original": descricao,
         "valor": valor,
-        "origem_extracao": "data_valor"
+        "origem_extracao": "data_valor",
+        "parcelado": False,
+        "parcelas_abertas": 0,
+        "valor_parcela": 0.0
     }
 
 
@@ -188,16 +200,107 @@ def extrair_linha_extenso(linha, arquivo):
         "data": f"{dia}/{mes}/{ano}",
         "descricao_original": descricao,
         "valor": valor,
-        "origem_extracao": "data_extenso"
+        "origem_extracao": "data_extenso",
+        "parcelado": False,
+        "parcelas_abertas": 0,
+        "valor_parcela": 0.0
     }
+
+
+def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
+    """
+    Captura bloco universal de fatura:
+    LOJA
+    CIDADE / UF
+    DATA
+    R$ TOTAL
+    Nx de R$ VALOR
+    """
+
+    linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
+    transacoes = []
+
+    contexto = []
+    valor_total = None
+    data_detectada = None
+
+    for linha in linhas:
+        linha_norm = normalizar_texto(linha)
+
+        if linha_norm.startswith("--- PAGINA"):
+            contexto = []
+            valor_total = None
+            data_detectada = None
+            continue
+
+        data_m = PADRAO_DATA_CURTA.search(linha_norm)
+        if data_m:
+            data_detectada = data_m.group(0)
+            if len(data_detectada) == 5:
+                data_detectada = f"{data_detectada}/{extrair_ano_arquivo(arquivo_origem)}"
+
+        valores = PADRAO_VALOR.findall(linha_norm)
+        if valores:
+            valor_total = converter_valor(valores[0])
+            sem_valor = PADRAO_VALOR.sub(" ", linha_norm)
+            sem_valor = limpar_descricao(sem_valor)
+            if sem_valor and not linha_bloqueada(sem_valor):
+                contexto.append(sem_valor)
+
+        m = PADRAO_NX_DE.search(linha_norm)
+        if m:
+            parcelas_abertas = int(m.group("qtd"))
+            valor_parcela = converter_valor(m.group("valor"))
+
+            if valor_total is None:
+                valor_total = round(parcelas_abertas * valor_parcela, 2)
+
+            descricao = limpar_descricao(" ".join(contexto[-4:]))
+
+            if not descricao:
+                descricao = "COMPRA PARCELADA"
+
+            if descricao_valida(descricao):
+                transacoes.append({
+                    "arquivo_fatura": arquivo_origem,
+                    "data": data_detectada or f"01/01/{extrair_ano_arquivo(arquivo_origem)}",
+                    "descricao_original": descricao,
+                    "valor": float(valor_total),
+                    "origem_extracao": "parcelamento_bloco",
+                    "parcelado": True,
+                    "parcelas_abertas": int(parcelas_abertas),
+                    "valor_parcela": float(valor_parcela)
+                })
+
+            contexto = []
+            valor_total = None
+            data_detectada = None
+            continue
+
+        if not valores and len(linha_norm) >= 3 and not linha_bloqueada(linha_norm):
+            contexto.append(linha_norm)
+            contexto = contexto[-5:]
+
+    return transacoes
 
 
 def extrair_transacoes_texto(texto, arquivo_origem=""):
     transacoes = []
+
+    transacoes.extend(
+        extrair_compras_parceladas_em_bloco(
+            texto=texto,
+            arquivo_origem=arquivo_origem
+        )
+    )
+
     linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
 
     for linha in linhas:
         if linha_bloqueada(linha):
+            continue
+
+        if PADRAO_NX_DE.search(linha):
             continue
 
         item = extrair_linha_numerica(linha, arquivo_origem)
@@ -230,7 +333,10 @@ def processar_transacoes(documentos):
         "data",
         "descricao_original",
         "valor",
-        "origem_extracao"
+        "origem_extracao",
+        "parcelado",
+        "parcelas_abertas",
+        "valor_parcela"
     ]
 
     df = pd.DataFrame(todas, columns=colunas)
@@ -253,8 +359,20 @@ def processar_transacoes(documentos):
     df["descricao_original"] = df["descricao_original"].apply(limpar_descricao)
     df = df[df["descricao_original"].apply(descricao_valida)]
 
+    df["parcelado"] = df["parcelado"].fillna(False)
+    df["parcelas_abertas"] = pd.to_numeric(df["parcelas_abertas"], errors="coerce").fillna(0).astype(int)
+    df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce").fillna(0)
+
     df = df.drop_duplicates(
-        subset=["arquivo_fatura", "data", "descricao_original", "valor"]
+        subset=[
+            "arquivo_fatura",
+            "data",
+            "descricao_original",
+            "valor",
+            "parcelado",
+            "parcelas_abertas",
+            "valor_parcela"
+        ]
     )
 
     df = df.sort_values(["data", "descricao_original"]).reset_index(drop=True)
