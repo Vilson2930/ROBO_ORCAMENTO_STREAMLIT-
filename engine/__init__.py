@@ -1,5 +1,5 @@
 # ============================================================
-# ORÇAMENTO INTELIGENTE
+# ORCAMENTO INTELIGENTE
 # ENGINE PACKAGE
 # ============================================================
 
@@ -10,3 +10,6 @@ from .category_engine import *
 from .parcelamento_engine import *
 from .diagnostico_engine import *
 from .recommendation_engine import *
+from .compromissos_engine import *
+from .debt_engine import *
+from .ROTATIVO_ENGINE import *
