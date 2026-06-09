@@ -1,7 +1,7 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — explícitos + prováveis com saldo conservador
+# Versão corrigida — consolida parcelas explícitas corretamente
 # ============================================================
 
 import re
@@ -133,7 +133,7 @@ def criar_item(compra, categoria, parcela_atual, total_parcelas, valor_parcela, 
 
 
 def detectar_explicitos(temp, coluna_desc, coluna_valor):
-    resultado = []
+    registros = []
 
     for _, linha in temp.iterrows():
         descricao = str(linha.get(coluna_desc, ""))
@@ -144,7 +144,7 @@ def detectar_explicitos(temp, coluna_desc, coluna_valor):
 
         parcela_atual, total_parcelas = extrair_parcela(descricao)
 
-        if parcela_atual is None:
+        if parcela_atual is None or total_parcelas is None:
             continue
 
         compra = limpar_compra(descricao)
@@ -152,22 +152,46 @@ def detectar_explicitos(temp, coluna_desc, coluna_valor):
         if not compra or contem_bloqueado(compra):
             continue
 
+        registros.append({
+            "compra": compra,
+            "categoria": linha.get("categoria", "Outros"),
+            "parcela_atual": int(parcela_atual),
+            "total_parcelas": int(total_parcelas),
+            "valor_parcela": round(float(valor), 2),
+            "descricao_detectada": descricao,
+        })
+
+    if not registros:
+        return []
+
+    base = pd.DataFrame(registros)
+
+    resultado = []
+
+    grupos = base.groupby(
+        ["compra", "valor_parcela", "total_parcelas"],
+        dropna=False
+    )
+
+    for (compra, valor_parcela, total_parcelas), grupo in grupos:
+        ultima = int(grupo["parcela_atual"].max())
+
         resultado.append(
             criar_item(
                 compra=compra,
-                categoria=linha.get("categoria", "Outros"),
-                parcela_atual=parcela_atual,
-                total_parcelas=total_parcelas,
-                valor_parcela=valor,
-                descricao=descricao,
-                tipo="EXPLICITO",
+                categoria=grupo.iloc[0].get("categoria", "Outros"),
+                parcela_atual=ultima,
+                total_parcelas=int(total_parcelas),
+                valor_parcela=float(valor_parcela),
+                descricao=" | ".join(grupo["descricao_detectada"].astype(str).unique()[:8]),
+                tipo="EXPLICITO_CONSOLIDADO",
             )
         )
 
     return resultado
 
 
-def detectar_provaveis(temp, coluna_desc, coluna_valor):
+def detectar_provaveis(temp, coluna_desc, coluna_valor, chaves_explicitas):
     resultado = []
 
     temp = temp.copy()
@@ -181,40 +205,34 @@ def detectar_provaveis(temp, coluna_desc, coluna_valor):
     grupos = temp.groupby(["compra_limpa", "valor_parcela_base"], dropna=False)
 
     for (compra, valor), grupo in grupos:
-        qtd_detectada = len(grupo)
+        qtd = len(grupo)
 
-        if qtd_detectada < 2:
+        if qtd < 2 or qtd > 36:
             continue
 
-        if qtd_detectada > 36:
+        if valor < 80 and qtd > 3:
             continue
 
-        # evita recorrência comum pequena
-        if valor < 80 and qtd_detectada > 3:
+        # Se já existe parcelamento explícito para a mesma compra e valor,
+        # não cria provável para não duplicar.
+        if (compra, float(valor)) in chaves_explicitas:
             continue
 
-        # Regra conservadora:
-        # se aparecer repetido 5 vezes, interpreta como 10x com 5 pagas.
-        # se aparecer repetido 4 vezes, interpreta como 8x com 4 pagas.
-        # se aparecer repetido 2 ou 3 vezes, interpreta como possível 6x.
-        if qtd_detectada >= 5:
-            total_estimado = qtd_detectada * 2
-        elif qtd_detectada == 4:
+        if qtd >= 5:
+            total_estimado = qtd * 2
+        elif qtd == 4:
             total_estimado = 8
         else:
             total_estimado = 6
-
-        parcela_atual = qtd_detectada
-        total_parcelas = max(total_estimado, parcela_atual)
 
         resultado.append(
             criar_item(
                 compra=compra,
                 categoria=grupo.iloc[0].get("categoria", "Outros"),
-                parcela_atual=parcela_atual,
-                total_parcelas=total_parcelas,
+                parcela_atual=qtd,
+                total_parcelas=total_estimado,
                 valor_parcela=float(valor),
-                descricao=f"Parcelamento provável por repetição: {compra} apareceu {qtd_detectada}x",
+                descricao=f"Parcelamento provável por repetição: {compra} apareceu {qtd}x",
                 tipo="PROVAVEL_REPETICAO",
             )
         )
@@ -236,20 +254,27 @@ def processar_parcelamentos(df):
 
     temp[coluna_valor] = pd.to_numeric(temp[coluna_valor], errors="coerce").fillna(0)
 
+    explicitos = detectar_explicitos(temp, coluna_desc, coluna_valor)
+
+    chaves_explicitas = set()
+    for item in explicitos:
+        chaves_explicitas.add((item["compra"], round(float(item["valor_parcela"]), 2)))
+
+    provaveis = detectar_provaveis(temp, coluna_desc, coluna_valor, chaves_explicitas)
+
     resultado = []
-    resultado.extend(detectar_explicitos(temp, coluna_desc, coluna_valor))
-    resultado.extend(detectar_provaveis(temp, coluna_desc, coluna_valor))
+    resultado.extend(explicitos)
+    resultado.extend(provaveis)
 
     if not resultado:
         return pd.DataFrame()
 
     df_resultado = pd.DataFrame(resultado)
 
-    df_resultado = df_resultado.drop_duplicates(
-        subset=["compra", "valor_parcela", "tipo_detectado"]
-    )
-
-    df_resultado = df_resultado.sort_values("valor_restante", ascending=False).reset_index(drop=True)
+    df_resultado = df_resultado.sort_values(
+        ["valor_restante", "compra"],
+        ascending=[False, True]
+    ).reset_index(drop=True)
 
     return df_resultado
 
