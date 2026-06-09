@@ -1,7 +1,7 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão robusta — preserva parcelamentos, dívida, PIX, boleto e encargos
+# Versão corrigida — bloqueia textos institucionais da fatura
 # ============================================================
 
 import re
@@ -52,22 +52,68 @@ PADRAO_PARCELA = re.compile(
     re.IGNORECASE
 )
 
-TERMOS_DIVIDA = [
+TERMOS_INSTITUCIONAIS = [
+    "FATURA ATUAL",
+    "DESPESAS DO MES",
+    "DESPESAS DO MÊS",
+    "DESPESAS DA FATURA",
+    "TOTAL DA SUA FATURA",
+    "VALOR TOTAL DA FATURA",
+    "PAGAMENTO TOTAL",
     "PAGAMENTO MINIMO",
     "PAGAMENTO MÍNIMO",
     "PAGAMENTO PARCIAL",
+    "PRECISA DE UMA FORCA",
+    "PRECISA DE UMA FORÇA",
+    "VALOR TOTAL FINANCIADO",
+    "VALOR FINANCIADO",
     "SALDO FINANCIADO",
     "SALDO DEVEDOR",
+    "SALDO QUE PODE VIRAR ROTATIVO",
     "CREDITO ROTATIVO",
     "CRÉDITO ROTATIVO",
-    "JUROS ROTATIVO",
-    "JUROS",
-    "IOF",
-    "MULTA",
+    "ROTATIVO",
     "ENCARGOS",
     "ENCARGOS FINANCEIROS",
-    "PARCELAMENTO FATURA",
-    "PARCELAMENTO DE FATURA",
+    "ENCARGOS ROTATIVOS",
+    "JUROS",
+    "JUROS ROTATIVO",
+    "IOF",
+    "IOF DIARIO",
+    "IOF DIÁRIO",
+    "IOF ADICIONAL",
+    "TAXA EFETIVA",
+    "TAXA EFETIVA MENSAL",
+    "TAXA EFETIVA ANUAL",
+    "CET",
+    "MULTA",
+    "MORA",
+    "LIMITE DE CREDITO",
+    "LIMITE DE CRÉDITO",
+    "PONTOS LOOP",
+    "SALDO TOTAL",
+    "VENCIMENTO",
+    "FECHAMENTO",
+    "RESUMO DA FATURA",
+    "SIMULACAO",
+    "SIMULAÇÃO",
+    "SIMULADO",
+    "OBSERVACAO",
+    "OBSERVAÇÃO",
+]
+
+TERMOS_CREDITO_PAGAMENTO = [
+    "PAGAMENTO ON LINE",
+    "PAGAMENTO ONLINE",
+    "PAGAMENTO VIA",
+    "PAGAMENTO PIX",
+    "PAGAMENTO BOLETO",
+    "VALOR ANTECIPADO",
+    "CREDITO DE PAGAMENTO",
+    "CRÉDITO DE PAGAMENTO",
+    "ESTORNO",
+    "CREDITO",
+    "CRÉDITO",
 ]
 
 
@@ -75,6 +121,25 @@ def normalizar(texto):
     texto = str(texto or "")
     texto = texto.replace("\r", "\n").replace("\t", " ")
     texto = re.sub(r"[ ]+", " ", texto)
+    return texto.strip()
+
+
+def normalizar_busca(texto):
+    texto = str(texto or "").upper()
+
+    trocas = {
+        "Á": "A", "À": "A", "Ã": "A", "Â": "A",
+        "É": "E", "Ê": "E",
+        "Í": "I",
+        "Ó": "O", "Õ": "O", "Ô": "O",
+        "Ú": "U",
+        "Ç": "C",
+    }
+
+    for a, b in trocas.items():
+        texto = texto.replace(a, b)
+
+    texto = re.sub(r"\s+", " ", texto)
     return texto.strip()
 
 
@@ -107,53 +172,67 @@ def montar_data_padrao(arquivo_origem):
     return f"01/{extrair_mes_do_arquivo(arquivo_origem)}/{extrair_ano_do_arquivo(arquivo_origem)}"
 
 
-def eh_linha_ignorada(descricao):
-    texto = str(descricao).upper()
+def eh_linha_institucional(descricao):
+    texto = normalizar_busca(descricao)
 
-    termos_ignorar = [
-        "FATURA ATUAL",
-        "DESPESAS DO MES",
-        "DESPESAS DO MÊS",
-        "TOTAL DA SUA FATURA",
-        "VALOR TOTAL DA FATURA",
-        "LIMITE DE CREDITO",
-        "LIMITE DE CRÉDITO",
-        "PONTOS LOOP",
-        "SALDO TOTAL",
-        "VENCIMENTO",
-        "FECHAMENTO",
-        "RESUMO DA FATURA",
-    ]
+    if not texto:
+        return True
 
-    return any(t in texto for t in termos_ignorar)
+    for termo in TERMOS_INSTITUCIONAIS:
+        if normalizar_busca(termo) in texto:
+            return True
+
+    return False
 
 
 def eh_credito_ou_pagamento_real(descricao, sinal):
-    texto = str(descricao).upper()
+    texto = normalizar_busca(descricao)
 
     if sinal == "+":
         return True
 
-    ignorar = [
-        "PAGAMENTO ON LINE",
-        "PAGAMENTO ONLINE",
-        "PAGAMENTO VIA",
-        "VALOR ANTECIPADO",
-        "CREDITO DE PAGAMENTO",
-        "CRÉDITO DE PAGAMENTO",
-        "ESTORNO",
-    ]
+    for termo in TERMOS_CREDITO_PAGAMENTO:
+        if normalizar_busca(termo) in texto:
+            return True
 
-    return any(t in texto for t in ignorar)
+    return False
 
 
-def contem_parcela_ou_divida(texto):
-    t = str(texto).upper()
+def descricao_parece_compra_real(descricao):
+    texto = normalizar_busca(descricao)
 
-    if PADRAO_PARCELA.search(t):
-        return True
+    if len(texto) < 3:
+        return False
 
-    return any(term.upper() in t for term in TERMOS_DIVIDA)
+    if eh_linha_institucional(texto):
+        return False
+
+    if len(texto) > 140:
+        return False
+
+    if texto.count("/") > 5:
+        return False
+
+    if texto.count("*") > 8:
+        return False
+
+    if re.search(r"\b\d{4}\*{2,}\d{4}\b", texto):
+        return False
+
+    if "VILSON JOSE PEREIRA PINTO" in texto:
+        return False
+
+    return True
+
+
+def contem_parcelamento_real(texto):
+    texto = str(texto or "")
+    texto_norm = normalizar_busca(texto)
+
+    if eh_linha_institucional(texto_norm):
+        return False
+
+    return bool(PADRAO_PARCELA.search(texto_norm))
 
 
 def extrair_transacoes_inter(texto, arquivo_origem):
@@ -166,7 +245,7 @@ def extrair_transacoes_inter(texto, arquivo_origem):
             if eh_credito_ou_pagamento_real(descricao, sinal):
                 continue
 
-            if eh_linha_ignorada(descricao):
+            if not descricao_parece_compra_real(descricao):
                 continue
 
             mes_texto = mes_texto.lower().replace(".", "")
@@ -177,7 +256,7 @@ def extrair_transacoes_inter(texto, arquivo_origem):
 
             valor = converter_valor(valor_texto)
 
-            if valor <= 0 or len(descricao) < 3:
+            if valor <= 0:
                 continue
 
             transacoes.append({
@@ -215,12 +294,12 @@ def extrair_transacoes_alternativas(texto, arquivo_origem):
                 if eh_credito_ou_pagamento_real(descricao, sinal):
                     continue
 
-                if eh_linha_ignorada(descricao):
+                if not descricao_parece_compra_real(descricao):
                     continue
 
                 valor = converter_valor(valor_texto)
 
-                if valor <= 0 or len(descricao) < 3:
+                if valor <= 0:
                     continue
 
                 transacoes.append({
@@ -242,36 +321,34 @@ def extrair_transacoes_sem_data(texto, arquivo_origem=""):
     linhas = [l.strip() for l in str(texto).splitlines() if l.strip()]
     data_padrao = montar_data_padrao(arquivo_origem)
 
-    buffer = []
-
     for linha in linhas:
         linha_limpa = limpar_descricao(linha)
 
         if not linha_limpa:
             continue
 
-        if "R$" in linha_limpa.upper():
-            valores = PADRAO_VALOR.findall(linha_limpa)
+        if eh_linha_institucional(linha_limpa):
+            continue
 
-            if not valores:
-                continue
+        if "R$" not in linha_limpa.upper():
+            continue
 
+        valores = PADRAO_VALOR.findall(linha_limpa)
+
+        if not valores:
+            continue
+
+        try:
             valor_texto = valores[-1]
             valor = converter_valor(valor_texto)
 
-            descricao_linha = PADRAO_VALOR.sub("", linha_limpa).strip()
-            partes = buffer.copy()
+            descricao = PADRAO_VALOR.sub("", linha_limpa).strip()
+            descricao = limpar_descricao(descricao)
 
-            if descricao_linha:
-                partes.append(descricao_linha)
-
-            descricao = limpar_descricao(" ".join(partes))
-            buffer = []
-
-            if not descricao or len(descricao) < 3:
+            if not descricao_parece_compra_real(descricao):
                 continue
 
-            if eh_linha_ignorada(descricao):
+            if valor <= 0:
                 continue
 
             transacoes.append({
@@ -282,43 +359,45 @@ def extrair_transacoes_sem_data(texto, arquivo_origem=""):
                 "origem_extracao": "sem_data"
             })
 
-        else:
-            if not PADRAO_DATA_NUMERICA.search(linha_limpa) and not PADRAO_DATA_EXTENSO.search(linha_limpa):
-                buffer.append(linha_limpa)
+        except Exception:
+            continue
 
     return transacoes
 
 
 def preservar_linhas_criticas(texto, arquivo_origem=""):
     """
-    Captura especificamente linhas com parcelamento ou dívida que podem ter sido
-    perdidas nos padrões principais.
+    Preserva apenas parcelamentos reais.
+    Não preserva juros, IOF, rotativo, pagamento mínimo ou textos institucionais.
     """
 
     transacoes = []
     linhas = [l.strip() for l in str(texto).splitlines() if l.strip()]
     data_padrao = montar_data_padrao(arquivo_origem)
 
-    for i, linha in enumerate(linhas):
-        contexto = " ".join(linhas[max(0, i - 2): min(len(linhas), i + 3)])
+    for linha in linhas:
+        linha_limpa = limpar_descricao(linha)
 
-        if not contem_parcela_ou_divida(contexto):
+        if not contem_parcelamento_real(linha_limpa):
             continue
 
-        valores = PADRAO_VALOR.findall(contexto)
+        if eh_linha_institucional(linha_limpa):
+            continue
+
+        valores = PADRAO_VALOR.findall(linha_limpa)
 
         if not valores:
             continue
 
         try:
             valor = converter_valor(valores[-1])
-            descricao = PADRAO_VALOR.sub("", contexto)
+            descricao = PADRAO_VALOR.sub("", linha_limpa)
             descricao = limpar_descricao(descricao)
 
-            if not descricao or len(descricao) < 3:
+            if not descricao_parece_compra_real(descricao):
                 continue
 
-            if eh_linha_ignorada(descricao):
+            if valor <= 0:
                 continue
 
             transacoes.append({
@@ -326,7 +405,7 @@ def preservar_linhas_criticas(texto, arquivo_origem=""):
                 "data": data_padrao,
                 "descricao_original": descricao,
                 "valor": valor,
-                "origem_extracao": "linha_critica"
+                "origem_extracao": "parcelamento_real"
             })
 
         except Exception:
@@ -386,6 +465,10 @@ def processar_transacoes(documentos):
     df = df[df["valor"] > 0]
 
     df["descricao_original"] = df["descricao_original"].apply(limpar_descricao)
+
+    df = df[
+        df["descricao_original"].apply(descricao_parece_compra_real)
+    ].copy()
 
     df = df.drop_duplicates(
         subset=[
