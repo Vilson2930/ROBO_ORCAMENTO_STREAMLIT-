@@ -1,16 +1,17 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — bloqueia textos institucionais da fatura
+# Versão corrigida — reconhece somente débitos reais de fatura
 # ============================================================
 
 import re
 import pandas as pd
+import unicodedata
 
 MESES = {
     "jan": "01", "janeiro": "01",
     "fev": "02", "fevereiro": "02",
-    "mar": "03", "março": "03", "marco": "03",
+    "mar": "03", "marco": "03", "março": "03",
     "abr": "04", "abril": "04",
     "mai": "05", "maio": "05",
     "jun": "06", "junho": "06",
@@ -22,406 +23,175 @@ MESES = {
     "dez": "12", "dezembro": "12",
 }
 
-PADRAO_INTER = re.compile(
-    r"(\d{1,2})\s+de\s+([a-zç]+)\.?\s+(\d{4})\s+(.+?)\s+([+-])\s+R\$\s*([\d\.]+,\d{2})",
+BLACKLIST = [
+    "DESPESAS DA FATURA", "DESPESAS DO MES", "DESPESAS DO MÊS",
+    "PAGAMENTO TOTAL", "PAGAMENTO MINIMO", "PAGAMENTO MÍNIMO",
+    "PRECISA DE UMA FORCA", "PRECISA DE UMA FORÇA",
+    "ENCARGOS FINANCEIROS", "ENCARGOS", "ROTATIVO",
+    "TOTAL DA FATURA", "VALOR TOTAL DA FATURA", "TOTAL A PAGAR",
+    "LIMITE", "VENCIMENTO", "FECHAMENTO", "MELHOR DIA",
+    "PAGINA", "PÁGINA", "RESUMO", "FATURA",
+    "VILSON JOSE PEREIRA PINTO", "5364", "4593",
+    "IOF", "JUROS", "MULTA", "MORA", "CET",
+    "SALDO", "CREDITO", "CRÉDITO", "ESTORNO",
+]
+
+PADRAO_DATA_VALOR = re.compile(
+    r"(?P<data>\d{2}/\d{2}(?:/\d{4})?)\s+"
+    r"(?P<descricao>.+?)\s+"
+    r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})$",
     re.IGNORECASE
 )
 
-PADROES_ALTERNATIVOS = [
-    re.compile(
-        r"(\d{2})/(\d{2})/(\d{4})\s+(.+?)\s+([+-])?\s*R?\$?\s*([\d\.]+,\d{2})",
-        re.IGNORECASE
-    ),
-    re.compile(
-        r"(\d{2})/(\d{2})\s+(.+?)\s+([+-])?\s*R?\$?\s*([\d\.]+,\d{2})",
-        re.IGNORECASE
-    ),
-]
-
-PADRAO_VALOR = re.compile(r"R\$\s*([\d\.]+,\d{2})", re.IGNORECASE)
-
-PADRAO_DATA_EXTENSO = re.compile(
-    r"(\d{1,2})\s+de\s+([a-zç]+)\.?\s+(\d{4})",
+PADRAO_EXTENSO_VALOR = re.compile(
+    r"(?P<dia>\d{1,2})\s+DE\s+(?P<mes>[A-ZÇ]+)\.?\s+(?P<ano>\d{4})\s+"
+    r"(?P<descricao>.+?)\s+"
+    r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})$",
     re.IGNORECASE
 )
 
-PADRAO_DATA_NUMERICA = re.compile(r"(\d{2})/(\d{2})(?:/(\d{4}))?")
 
-PADRAO_PARCELA = re.compile(
-    r"(PARCELA\s*\d{1,2}\s*DE\s*\d{1,2}|PARC\s*\d{1,2}\s*/\s*\d{1,2}|\b\d{1,2}\s*/\s*\d{1,2}\b|\b\d{1,2}\s*X\b)",
-    re.IGNORECASE
-)
-
-TERMOS_INSTITUCIONAIS = [
-    "FATURA ATUAL",
-    "DESPESAS DO MES",
-    "DESPESAS DO MÊS",
-    "DESPESAS DA FATURA",
-    "TOTAL DA SUA FATURA",
-    "VALOR TOTAL DA FATURA",
-    "PAGAMENTO TOTAL",
-    "PAGAMENTO MINIMO",
-    "PAGAMENTO MÍNIMO",
-    "PAGAMENTO PARCIAL",
-    "PRECISA DE UMA FORCA",
-    "PRECISA DE UMA FORÇA",
-    "VALOR TOTAL FINANCIADO",
-    "VALOR FINANCIADO",
-    "SALDO FINANCIADO",
-    "SALDO DEVEDOR",
-    "SALDO QUE PODE VIRAR ROTATIVO",
-    "CREDITO ROTATIVO",
-    "CRÉDITO ROTATIVO",
-    "ROTATIVO",
-    "ENCARGOS",
-    "ENCARGOS FINANCEIROS",
-    "ENCARGOS ROTATIVOS",
-    "JUROS",
-    "JUROS ROTATIVO",
-    "IOF",
-    "IOF DIARIO",
-    "IOF DIÁRIO",
-    "IOF ADICIONAL",
-    "TAXA EFETIVA",
-    "TAXA EFETIVA MENSAL",
-    "TAXA EFETIVA ANUAL",
-    "CET",
-    "MULTA",
-    "MORA",
-    "LIMITE DE CREDITO",
-    "LIMITE DE CRÉDITO",
-    "PONTOS LOOP",
-    "SALDO TOTAL",
-    "VENCIMENTO",
-    "FECHAMENTO",
-    "RESUMO DA FATURA",
-    "SIMULACAO",
-    "SIMULAÇÃO",
-    "SIMULADO",
-    "OBSERVACAO",
-    "OBSERVAÇÃO",
-]
-
-TERMOS_CREDITO_PAGAMENTO = [
-    "PAGAMENTO ON LINE",
-    "PAGAMENTO ONLINE",
-    "PAGAMENTO VIA",
-    "PAGAMENTO PIX",
-    "PAGAMENTO BOLETO",
-    "VALOR ANTECIPADO",
-    "CREDITO DE PAGAMENTO",
-    "CRÉDITO DE PAGAMENTO",
-    "ESTORNO",
-    "CREDITO",
-    "CRÉDITO",
-]
-
-
-def normalizar(texto):
+def normalizar_texto(texto):
     texto = str(texto or "")
-    texto = texto.replace("\r", "\n").replace("\t", " ")
-    texto = re.sub(r"[ ]+", " ", texto)
-    return texto.strip()
-
-
-def normalizar_busca(texto):
-    texto = str(texto or "").upper()
-
-    trocas = {
-        "Á": "A", "À": "A", "Ã": "A", "Â": "A",
-        "É": "E", "Ê": "E",
-        "Í": "I",
-        "Ó": "O", "Õ": "O", "Ô": "O",
-        "Ú": "U",
-        "Ç": "C",
-    }
-
-    for a, b in trocas.items():
-        texto = texto.replace(a, b)
-
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(c for c in texto if not unicodedata.combining(c))
+    texto = texto.upper()
     texto = re.sub(r"\s+", " ", texto)
     return texto.strip()
 
 
-def converter_valor(valor_texto):
-    return float(str(valor_texto).replace(".", "").replace(",", ".").strip())
-
-
 def limpar_descricao(descricao):
-    descricao = normalizar(descricao)
-    descricao = descricao.replace("R$", "").strip()
-    descricao = descricao.replace(" - ", " ").strip()
+    descricao = str(descricao or "")
+    descricao = re.sub(r"R\$", "", descricao, flags=re.IGNORECASE)
     descricao = re.sub(r"\s+", " ", descricao)
     return descricao.strip(" -")
 
 
-def extrair_ano_do_arquivo(arquivo_origem):
-    m = re.search(r"(20\d{2})", str(arquivo_origem))
+def converter_valor(valor):
+    return float(str(valor).replace(".", "").replace(",", "."))
+
+
+def extrair_ano_arquivo(nome_arquivo):
+    m = re.search(r"(20\d{2})", str(nome_arquivo))
     return m.group(1) if m else "2026"
 
 
-def extrair_mes_do_arquivo(arquivo_origem):
-    texto = str(arquivo_origem).lower()
-    for nome_mes, numero in MESES.items():
-        if nome_mes in texto:
-            return numero
-    return "06"
-
-
-def montar_data_padrao(arquivo_origem):
-    return f"01/{extrair_mes_do_arquivo(arquivo_origem)}/{extrair_ano_do_arquivo(arquivo_origem)}"
-
-
-def eh_linha_institucional(descricao):
-    texto = normalizar_busca(descricao)
+def linha_bloqueada(linha):
+    texto = normalizar_texto(linha)
 
     if not texto:
         return True
 
-    for termo in TERMOS_INSTITUCIONAIS:
-        if normalizar_busca(termo) in texto:
+    for termo in BLACKLIST:
+        if normalizar_texto(termo) in texto:
             return True
 
-    return False
-
-
-def eh_credito_ou_pagamento_real(descricao, sinal):
-    texto = normalizar_busca(descricao)
-
-    if sinal == "+":
+    if len(texto) > 120:
         return True
 
-    for termo in TERMOS_CREDITO_PAGAMENTO:
-        if normalizar_busca(termo) in texto:
-            return True
+    if texto.count("*") >= 4:
+        return True
+
+    if texto.count("/") > 4:
+        return True
 
     return False
 
 
-def descricao_parece_compra_real(descricao):
-    texto = normalizar_busca(descricao)
+def descricao_valida(descricao):
+    texto = normalizar_texto(descricao)
+
+    if linha_bloqueada(texto):
+        return False
 
     if len(texto) < 3:
         return False
 
-    if eh_linha_institucional(texto):
+    if len(texto) > 80:
         return False
 
-    if len(texto) > 140:
-        return False
-
-    if texto.count("/") > 5:
-        return False
-
-    if texto.count("*") > 8:
-        return False
-
-    if re.search(r"\b\d{4}\*{2,}\d{4}\b", texto):
-        return False
-
-    if "VILSON JOSE PEREIRA PINTO" in texto:
+    if not re.search(r"[A-Z]", texto):
         return False
 
     return True
 
 
-def contem_parcelamento_real(texto):
-    texto = str(texto or "")
-    texto_norm = normalizar_busca(texto)
+def extrair_linha_numerica(linha, arquivo):
+    m = PADRAO_DATA_VALOR.search(linha.strip())
+    if not m:
+        return None
 
-    if eh_linha_institucional(texto_norm):
-        return False
+    data = m.group("data")
+    descricao = limpar_descricao(m.group("descricao"))
+    valor = converter_valor(m.group("valor"))
 
-    return bool(PADRAO_PARCELA.search(texto_norm))
+    if len(data) == 5:
+        data = f"{data}/{extrair_ano_arquivo(arquivo)}"
 
+    if valor <= 0:
+        return None
 
-def extrair_transacoes_inter(texto, arquivo_origem):
-    transacoes = []
+    if not descricao_valida(descricao):
+        return None
 
-    for dia, mes_texto, ano, descricao, sinal, valor_texto in PADRAO_INTER.findall(texto):
-        try:
-            descricao = limpar_descricao(descricao)
-
-            if eh_credito_ou_pagamento_real(descricao, sinal):
-                continue
-
-            if not descricao_parece_compra_real(descricao):
-                continue
-
-            mes_texto = mes_texto.lower().replace(".", "")
-            mes_numero = MESES.get(mes_texto)
-
-            if not mes_numero:
-                continue
-
-            valor = converter_valor(valor_texto)
-
-            if valor <= 0:
-                continue
-
-            transacoes.append({
-                "arquivo_fatura": arquivo_origem,
-                "data": f"{dia.zfill(2)}/{mes_numero}/{ano}",
-                "descricao_original": descricao,
-                "valor": valor,
-                "origem_extracao": "padrao_inter"
-            })
-
-        except Exception:
-            continue
-
-    return transacoes
+    return {
+        "arquivo_fatura": arquivo,
+        "data": data,
+        "descricao_original": descricao,
+        "valor": valor,
+        "origem_extracao": "data_valor"
+    }
 
 
-def extrair_transacoes_alternativas(texto, arquivo_origem):
-    transacoes = []
-    ano_padrao = extrair_ano_do_arquivo(arquivo_origem)
+def extrair_linha_extenso(linha, arquivo):
+    linha_norm = normalizar_texto(linha)
+    m = PADRAO_EXTENSO_VALOR.search(linha_norm)
 
-    for padrao in PADROES_ALTERNATIVOS:
-        for item in padrao.findall(texto):
-            try:
-                if len(item) == 6:
-                    dia, mes, ano, descricao, sinal, valor_texto = item
-                    data = f"{dia}/{mes}/{ano}"
-                elif len(item) == 5:
-                    dia, mes, descricao, sinal, valor_texto = item
-                    data = f"{dia}/{mes}/{ano_padrao}"
-                else:
-                    continue
+    if not m:
+        return None
 
-                descricao = limpar_descricao(descricao)
+    mes_nome = normalizar_texto(m.group("mes")).lower()
+    mes = MESES.get(mes_nome)
 
-                if eh_credito_ou_pagamento_real(descricao, sinal):
-                    continue
+    if not mes:
+        return None
 
-                if not descricao_parece_compra_real(descricao):
-                    continue
+    dia = m.group("dia").zfill(2)
+    ano = m.group("ano")
+    descricao = limpar_descricao(m.group("descricao"))
+    valor = converter_valor(m.group("valor"))
 
-                valor = converter_valor(valor_texto)
+    if valor <= 0:
+        return None
 
-                if valor <= 0:
-                    continue
+    if not descricao_valida(descricao):
+        return None
 
-                transacoes.append({
-                    "arquivo_fatura": arquivo_origem,
-                    "data": data,
-                    "descricao_original": descricao,
-                    "valor": valor,
-                    "origem_extracao": "padrao_alternativo"
-                })
-
-            except Exception:
-                continue
-
-    return transacoes
-
-
-def extrair_transacoes_sem_data(texto, arquivo_origem=""):
-    transacoes = []
-    linhas = [l.strip() for l in str(texto).splitlines() if l.strip()]
-    data_padrao = montar_data_padrao(arquivo_origem)
-
-    for linha in linhas:
-        linha_limpa = limpar_descricao(linha)
-
-        if not linha_limpa:
-            continue
-
-        if eh_linha_institucional(linha_limpa):
-            continue
-
-        if "R$" not in linha_limpa.upper():
-            continue
-
-        valores = PADRAO_VALOR.findall(linha_limpa)
-
-        if not valores:
-            continue
-
-        try:
-            valor_texto = valores[-1]
-            valor = converter_valor(valor_texto)
-
-            descricao = PADRAO_VALOR.sub("", linha_limpa).strip()
-            descricao = limpar_descricao(descricao)
-
-            if not descricao_parece_compra_real(descricao):
-                continue
-
-            if valor <= 0:
-                continue
-
-            transacoes.append({
-                "arquivo_fatura": arquivo_origem,
-                "data": data_padrao,
-                "descricao_original": descricao,
-                "valor": valor,
-                "origem_extracao": "sem_data"
-            })
-
-        except Exception:
-            continue
-
-    return transacoes
-
-
-def preservar_linhas_criticas(texto, arquivo_origem=""):
-    """
-    Preserva apenas parcelamentos reais.
-    Não preserva juros, IOF, rotativo, pagamento mínimo ou textos institucionais.
-    """
-
-    transacoes = []
-    linhas = [l.strip() for l in str(texto).splitlines() if l.strip()]
-    data_padrao = montar_data_padrao(arquivo_origem)
-
-    for linha in linhas:
-        linha_limpa = limpar_descricao(linha)
-
-        if not contem_parcelamento_real(linha_limpa):
-            continue
-
-        if eh_linha_institucional(linha_limpa):
-            continue
-
-        valores = PADRAO_VALOR.findall(linha_limpa)
-
-        if not valores:
-            continue
-
-        try:
-            valor = converter_valor(valores[-1])
-            descricao = PADRAO_VALOR.sub("", linha_limpa)
-            descricao = limpar_descricao(descricao)
-
-            if not descricao_parece_compra_real(descricao):
-                continue
-
-            if valor <= 0:
-                continue
-
-            transacoes.append({
-                "arquivo_fatura": arquivo_origem,
-                "data": data_padrao,
-                "descricao_original": descricao,
-                "valor": valor,
-                "origem_extracao": "parcelamento_real"
-            })
-
-        except Exception:
-            continue
-
-    return transacoes
+    return {
+        "arquivo_fatura": arquivo,
+        "data": f"{dia}/{mes}/{ano}",
+        "descricao_original": descricao,
+        "valor": valor,
+        "origem_extracao": "data_extenso"
+    }
 
 
 def extrair_transacoes_texto(texto, arquivo_origem=""):
-    texto = normalizar(texto)
-
     transacoes = []
-    transacoes.extend(extrair_transacoes_inter(texto, arquivo_origem))
-    transacoes.extend(extrair_transacoes_alternativas(texto, arquivo_origem))
-    transacoes.extend(extrair_transacoes_sem_data(texto, arquivo_origem))
-    transacoes.extend(preservar_linhas_criticas(texto, arquivo_origem))
+
+    linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
+
+    for linha in linhas:
+        if linha_bloqueada(linha):
+            continue
+
+        item = extrair_linha_numerica(linha, arquivo_origem)
+
+        if item is None:
+            item = extrair_linha_extenso(linha, arquivo_origem)
+
+        if item is not None:
+            transacoes.append(item)
 
     return transacoes
 
@@ -440,18 +210,18 @@ def processar_transacoes(documentos):
             )
         )
 
-    df = pd.DataFrame(todas)
+    colunas = [
+        "arquivo_fatura",
+        "data",
+        "descricao_original",
+        "valor",
+        "origem_extracao"
+    ]
+
+    df = pd.DataFrame(todas, columns=colunas)
 
     if df.empty:
-        return pd.DataFrame(
-            columns=[
-                "arquivo_fatura",
-                "data",
-                "descricao_original",
-                "valor",
-                "origem_extracao"
-            ]
-        )
+        return df
 
     df["data"] = pd.to_datetime(
         df["data"],
@@ -461,27 +231,18 @@ def processar_transacoes(documentos):
 
     df = df.dropna(subset=["data"])
 
-    df["valor"] = pd.to_numeric(df["valor"], errors="coerce").fillna(0)
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+    df = df.dropna(subset=["valor"])
     df = df[df["valor"] > 0]
 
     df["descricao_original"] = df["descricao_original"].apply(limpar_descricao)
-
-    df = df[
-        df["descricao_original"].apply(descricao_parece_compra_real)
-    ].copy()
+    df = df[df["descricao_original"].apply(descricao_valida)]
 
     df = df.drop_duplicates(
-        subset=[
-            "arquivo_fatura",
-            "descricao_original",
-            "valor"
-        ]
+        subset=["arquivo_fatura", "data", "descricao_original", "valor"]
     )
 
-    df = df.sort_values(
-        ["data", "valor"],
-        ascending=[True, False]
-    ).reset_index(drop=True)
+    df = df.sort_values(["data", "descricao_original"]).reset_index(drop=True)
 
     return df
 
@@ -490,10 +251,10 @@ def resumo_transacoes(df_transacoes):
     if df_transacoes is None or df_transacoes.empty:
         return {
             "quantidade": 0,
-            "valor_total": 0
+            "valor_total": 0.0
         }
 
     return {
-        "quantidade": len(df_transacoes),
+        "quantidade": int(len(df_transacoes)),
         "valor_total": float(df_transacoes["valor"].sum())
     }
