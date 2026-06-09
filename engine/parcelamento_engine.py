@@ -1,12 +1,15 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão profissional — confirma, consolida e remove quitados
+# Versão profissional — consolidação com tolerância de centavos
 # ============================================================
 
 import re
 import pandas as pd
 import unicodedata
+
+
+TOLERANCIA_VALOR = 0.15
 
 
 def normalizar_texto(texto):
@@ -111,45 +114,6 @@ def encontrar_coluna_valor(df):
 
     numericas = df.select_dtypes(include="number").columns.tolist()
     return numericas[0] if numericas else None
-
-
-def criar_item(
-    arquivo,
-    compra,
-    categoria,
-    ultima_parcela,
-    total_parcelas,
-    valor_parcela,
-    descricao,
-    tipo_detectado,
-):
-    ultima_parcela = int(ultima_parcela)
-    total_parcelas = int(total_parcelas)
-    valor_parcela = float(valor_parcela)
-
-    parcelas_abertas = max(total_parcelas - ultima_parcela, 0)
-    valor_restante = parcelas_abertas * valor_parcela
-    valor_pago = ultima_parcela * valor_parcela
-    valor_total_compra = total_parcelas * valor_parcela
-
-    status = "QUITADO" if parcelas_abertas == 0 else "ABERTO"
-
-    return {
-        "arquivo_fatura": arquivo,
-        "compra": compra,
-        "categoria": categoria,
-        "ultima_parcela": ultima_parcela,
-        "total_parcelas": total_parcelas,
-        "parcelas_pagas": ultima_parcela,
-        "parcelas_abertas": parcelas_abertas,
-        "valor_parcela": valor_parcela,
-        "valor_total_compra": valor_total_compra,
-        "valor_pago": valor_pago,
-        "valor_restante": valor_restante,
-        "status": status,
-        "tipo_detectado": tipo_detectado,
-        "descricao_detectada": descricao,
-    }
 
 
 def extrair_parcelamentos_documento(texto, arquivo=""):
@@ -317,7 +281,6 @@ def consolidar_parcelamentos(registros):
 
     base["compra_norm"] = base["compra"].apply(normalizar_texto)
     base["valor_parcela"] = pd.to_numeric(base["valor_parcela"], errors="coerce").fillna(0)
-    base["valor_chave"] = base["valor_parcela"].round(1)
     base["total_parcelas"] = pd.to_numeric(base["total_parcelas"], errors="coerce").fillna(0).astype(int)
     base["ultima_parcela"] = pd.to_numeric(base["ultima_parcela"], errors="coerce").fillna(0).astype(int)
 
@@ -327,61 +290,80 @@ def consolidar_parcelamentos(registros):
 
     consolidados = []
 
-    grupos = base.groupby(
-        ["compra_norm", "valor_chave", "total_parcelas"],
+    for (compra_norm, total_parcelas), grupo_compra in base.groupby(
+        ["compra_norm", "total_parcelas"],
         dropna=False
-    )
+    ):
+        grupo_compra = grupo_compra.copy()
+        grupo_compra = grupo_compra.sort_values("valor_parcela")
 
-    for _, grupo in grupos:
-        grupo = grupo.copy()
+        grupos_valor = []
 
-        maior_parcela = int(grupo["ultima_parcela"].max())
-        total_parcelas = int(grupo["total_parcelas"].max())
+        for _, row in grupo_compra.iterrows():
+            inserido = False
 
-        valor_parcela = float(grupo["valor_parcela"].median())
-        compra = grupo.iloc[0]["compra"]
-        categoria = grupo.iloc[0].get("categoria", "Outros")
-        arquivo = grupo.iloc[-1].get("arquivo_fatura", "")
+            for g in grupos_valor:
+                referencia = float(g[0]["valor_parcela"])
+                atual = float(row["valor_parcela"])
 
-        tipos = " | ".join(grupo["tipo_detectado"].astype(str).unique())
-        descricoes = " | ".join(grupo["descricao_detectada"].astype(str).unique()[:8])
+                if abs(atual - referencia) <= TOLERANCIA_VALOR:
+                    g.append(row)
+                    inserido = True
+                    break
 
-        if maior_parcela == 0:
-            parcelas_abertas = total_parcelas
-        else:
-            parcelas_abertas = max(total_parcelas - maior_parcela, 0)
+            if not inserido:
+                grupos_valor.append([row])
 
-        valor_restante = parcelas_abertas * valor_parcela
-        valor_pago = maior_parcela * valor_parcela
-        valor_total_compra = total_parcelas * valor_parcela
+        for g in grupos_valor:
+            grupo = pd.DataFrame(g)
 
-        if parcelas_abertas == 0:
-            status = "QUITADO"
-            classificacao = "QUITADO"
-        else:
-            status = "ABERTO"
-            if len(grupo) >= 2 or maior_parcela >= 2 or "NX_DE" in tipos:
-                classificacao = "CONFIRMADO"
+            maior_parcela = int(grupo["ultima_parcela"].max())
+            total = int(grupo["total_parcelas"].max())
+            valor_parcela = float(grupo["valor_parcela"].median())
+
+            compra = grupo.iloc[0]["compra"]
+            categoria = grupo.iloc[0].get("categoria", "Outros")
+            arquivo = grupo.iloc[-1].get("arquivo_fatura", "")
+
+            tipos = " | ".join(grupo["tipo_detectado"].astype(str).unique())
+            descricoes = " | ".join(grupo["descricao_detectada"].astype(str).unique()[:10])
+
+            if maior_parcela == 0:
+                parcelas_abertas = total
             else:
-                classificacao = "CONFIRMADO_INICIAL"
+                parcelas_abertas = max(total - maior_parcela, 0)
 
-        consolidados.append({
-            "arquivo_fatura": arquivo,
-            "compra": compra,
-            "categoria": categoria,
-            "ultima_parcela": maior_parcela,
-            "total_parcelas": total_parcelas,
-            "parcelas_pagas": maior_parcela,
-            "parcelas_abertas": parcelas_abertas,
-            "valor_parcela": valor_parcela,
-            "valor_total_compra": valor_total_compra,
-            "valor_pago": valor_pago,
-            "valor_restante": valor_restante,
-            "status": status,
-            "tipo_detectado": tipos,
-            "descricao_detectada": descricoes,
-            "classificacao_validacao": classificacao,
-        })
+            valor_restante = parcelas_abertas * valor_parcela
+            valor_pago = maior_parcela * valor_parcela
+            valor_total_compra = total * valor_parcela
+
+            if parcelas_abertas == 0:
+                status = "QUITADO"
+                classificacao = "QUITADO"
+            else:
+                status = "ABERTO"
+                if len(grupo) >= 2 or maior_parcela >= 2 or "NX_DE" in tipos:
+                    classificacao = "CONFIRMADO"
+                else:
+                    classificacao = "CONFIRMADO_INICIAL"
+
+            consolidados.append({
+                "arquivo_fatura": arquivo,
+                "compra": compra,
+                "categoria": categoria,
+                "ultima_parcela": maior_parcela,
+                "total_parcelas": total,
+                "parcelas_pagas": maior_parcela,
+                "parcelas_abertas": parcelas_abertas,
+                "valor_parcela": valor_parcela,
+                "valor_total_compra": valor_total_compra,
+                "valor_pago": valor_pago,
+                "valor_restante": valor_restante,
+                "status": status,
+                "tipo_detectado": tipos,
+                "descricao_detectada": descricoes,
+                "classificacao_validacao": classificacao,
+            })
 
     resultado = pd.DataFrame(consolidados)
 
