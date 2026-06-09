@@ -990,7 +990,7 @@ elif pagina == "💸 Rotativo":
         "Juros estimado do rotativo ao mês (%)",
         min_value=0.0,
         max_value=25.0,
-        value=12.0,
+        value=15.0,
         step=0.5
     )
 
