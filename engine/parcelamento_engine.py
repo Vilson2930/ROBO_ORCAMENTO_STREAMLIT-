@@ -1,7 +1,7 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Detecta parcelamentos explícitos e prováveis
+# Versão corrigida — explícitos + prováveis com saldo conservador
 # ============================================================
 
 import re
@@ -50,16 +50,13 @@ def extrair_parcela(texto):
 
     for padrao in PADROES_PARCELA:
         m = re.search(padrao, texto)
-
         if m:
             atual = int(m.group(1))
             total = int(m.group(2))
-
             if 1 <= atual <= total and 2 <= total <= 60:
                 return atual, total
 
     m = PADRAO_X.search(texto)
-
     if m:
         total = int(m.group(1))
         if 2 <= total <= 60:
@@ -87,7 +84,10 @@ def limpar_compra(texto):
     for padrao in limpezas:
         texto = re.sub(padrao, "", texto)
 
+    texto = re.sub(r"\(\s*\)", "", texto)
+    texto = re.sub(r"[*]+", " ", texto)
     texto = re.sub(r"\s+", " ", texto)
+
     return texto.strip(" -")
 
 
@@ -110,13 +110,6 @@ def encontrar_coluna_valor(df):
 
     numericas = df.select_dtypes(include="number").columns.tolist()
     return numericas[0] if numericas else None
-
-
-def encontrar_coluna_data(df):
-    for col in ["data", "date", "dt", "vencimento"]:
-        if col in df.columns:
-            return col
-    return None
 
 
 def criar_item(compra, categoria, parcela_atual, total_parcelas, valor_parcela, descricao, tipo):
@@ -174,7 +167,7 @@ def detectar_explicitos(temp, coluna_desc, coluna_valor):
     return resultado
 
 
-def detectar_provaveis(temp, coluna_desc, coluna_valor, coluna_data=None):
+def detectar_provaveis(temp, coluna_desc, coluna_valor):
     resultado = []
 
     temp = temp.copy()
@@ -188,20 +181,31 @@ def detectar_provaveis(temp, coluna_desc, coluna_valor, coluna_data=None):
     grupos = temp.groupby(["compra_limpa", "valor_parcela_base"], dropna=False)
 
     for (compra, valor), grupo in grupos:
-        quantidade = len(grupo)
+        qtd_detectada = len(grupo)
 
-        if quantidade < 2:
+        if qtd_detectada < 2:
             continue
 
-        if quantidade > 60:
+        if qtd_detectada > 36:
             continue
 
-        # evita classificar consumo recorrente pequeno como parcelamento
-        if valor < 80 and quantidade > 3:
+        # evita recorrência comum pequena
+        if valor < 80 and qtd_detectada > 3:
             continue
 
-        total_parcelas = quantidade
-        parcela_atual = quantidade
+        # Regra conservadora:
+        # se aparecer repetido 5 vezes, interpreta como 10x com 5 pagas.
+        # se aparecer repetido 4 vezes, interpreta como 8x com 4 pagas.
+        # se aparecer repetido 2 ou 3 vezes, interpreta como possível 6x.
+        if qtd_detectada >= 5:
+            total_estimado = qtd_detectada * 2
+        elif qtd_detectada == 4:
+            total_estimado = 8
+        else:
+            total_estimado = 6
+
+        parcela_atual = qtd_detectada
+        total_parcelas = max(total_estimado, parcela_atual)
 
         resultado.append(
             criar_item(
@@ -210,7 +214,7 @@ def detectar_provaveis(temp, coluna_desc, coluna_valor, coluna_data=None):
                 parcela_atual=parcela_atual,
                 total_parcelas=total_parcelas,
                 valor_parcela=float(valor),
-                descricao=f"Parcelamento provável por repetição: {compra} x{quantidade}",
+                descricao=f"Parcelamento provável por repetição: {compra} apareceu {qtd_detectada}x",
                 tipo="PROVAVEL_REPETICAO",
             )
         )
@@ -226,7 +230,6 @@ def processar_parcelamentos(df):
 
     coluna_desc = encontrar_coluna_descricao(temp)
     coluna_valor = encontrar_coluna_valor(temp)
-    coluna_data = encontrar_coluna_data(temp)
 
     if coluna_desc is None or coluna_valor is None:
         return pd.DataFrame()
@@ -235,7 +238,7 @@ def processar_parcelamentos(df):
 
     resultado = []
     resultado.extend(detectar_explicitos(temp, coluna_desc, coluna_valor))
-    resultado.extend(detectar_provaveis(temp, coluna_desc, coluna_valor, coluna_data))
+    resultado.extend(detectar_provaveis(temp, coluna_desc, coluna_valor))
 
     if not resultado:
         return pd.DataFrame()
@@ -243,7 +246,7 @@ def processar_parcelamentos(df):
     df_resultado = pd.DataFrame(resultado)
 
     df_resultado = df_resultado.drop_duplicates(
-        subset=["compra", "total_parcelas", "valor_parcela", "tipo_detectado"]
+        subset=["compra", "valor_parcela", "tipo_detectado"]
     )
 
     df_resultado = df_resultado.sort_values("valor_restante", ascending=False).reset_index(drop=True)
