@@ -19,6 +19,14 @@ from engine.compromissos_engine import (
     gerar_texto_capacidade
 )
 
+from engine.rotativo_engine import (
+    analisar_pagamento_fatura,
+    simular_nova_parcela,
+    gerar_texto_decisao_pagamento,
+    gerar_resumo_comparativo
+)
+
+
 USER_RULES_PATH = Path("data/user_rules.csv")
 
 CORES = [
@@ -95,6 +103,9 @@ def escolher_coluna_valor(df):
 
 
 def preparar_resumo_para_grafico(resumo):
+    if resumo is None or resumo.empty:
+        return pd.DataFrame(columns=["Categoria", "Valor"])
+
     df = resumo.copy()
 
     if isinstance(df.index, pd.Index):
@@ -126,6 +137,9 @@ def preparar_resumo_para_grafico(resumo):
 
 
 def preparar_evolucao_faturas(df):
+    if df is None or df.empty:
+        return pd.DataFrame(columns=["Fatura", "Valor"])
+
     base = df.copy()
     coluna_fatura = None
 
@@ -178,6 +192,7 @@ def criar_resumo_cliente(gasto_total, df_grafico, diagnostico, compromissos):
     total = df_grafico["Valor"].sum()
 
     linhas = []
+
     for _, row in top3.iterrows():
         percentual = (row["Valor"] / total) * 100 if total else 0
         linhas.append(f"{row['Categoria']} ({percentual:.1f}%)")
@@ -185,9 +200,9 @@ def criar_resumo_cliente(gasto_total, df_grafico, diagnostico, compromissos):
     return (
         f"Você gastou {moeda(gasto_total)} no período analisado. "
         f"As maiores despesas foram {', '.join(linhas)}. "
-        f"As parcelas futuras somam {moeda(compromissos['valor_restante_total'])}. "
-        f"O impacto mensal das parcelas é de {moeda(compromissos['impacto_mensal'])}. "
-        f"Sua saúde financeira está classificada como {classificar_score(diagnostico['score'])}. "
+        f"As parcelas futuras somam {moeda(compromissos.get('valor_restante_total', 0))}. "
+        f"O impacto mensal das parcelas é de {moeda(compromissos.get('impacto_mensal', 0))}. "
+        f"Sua saúde financeira está classificada como {classificar_score(diagnostico.get('score', 0))}. "
         f"{diagnostico.get('acao_prioritaria', '')}"
     )
 
@@ -196,6 +211,7 @@ def calcular_outros(df_base, gasto_total):
     outros_df = auditar_outros(df_base, top=50)
 
     valor_outros = 0
+
     if outros_df is not None and not outros_df.empty:
         try:
             valor_outros = float(outros_df.sum().sum())
@@ -203,6 +219,7 @@ def calcular_outros(df_base, gasto_total):
             valor_outros = 0
 
     percentual_outros = (valor_outros / gasto_total) * 100 if gasto_total else 0
+
     return valor_outros, percentual_outros
 
 
@@ -291,6 +308,7 @@ st.set_page_config(
     page_icon="💰",
     layout="wide"
 )
+
 
 st.markdown(
     """
@@ -404,45 +422,6 @@ st.markdown(
         margin-top: 12px;
     }
 
-    div[role="radiogroup"] label {
-        background: transparent;
-        padding: 13px 14px;
-        border-radius: 13px;
-        margin-bottom: 7px;
-        cursor: pointer;
-        transition: 0.2s;
-        border: 1px solid transparent;
-    }
-
-    div[role="radiogroup"] label:hover {
-        background-color: rgba(255,255,255,0.08);
-        border: 1px solid rgba(255,255,255,0.08);
-    }
-
-    div[role="radiogroup"] label[data-checked="true"] {
-        background: linear-gradient(135deg, #22C55E, #2563EB);
-        color: white;
-        font-weight: 900;
-        border: 1px solid rgba(255,255,255,0.18);
-    }
-
-    div[role="radiogroup"] label > div:first-child {
-        display: none;
-    }
-
-    .sidebar-title {
-        font-size: 25px;
-        font-weight: 900;
-        color: white;
-        margin-bottom: 4px;
-    }
-
-    .sidebar-subtitle {
-        font-size: 13px;
-        color: #94A3B8;
-        margin-bottom: 24px;
-    }
-
     .score-box {
         background: #111827;
         padding: 22px;
@@ -488,6 +467,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
 st.sidebar.markdown(
     """
     <div class="sidebar-title">💰 Orçamento</div>
@@ -496,12 +476,14 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
+
 pagina = st.sidebar.radio(
     "Menu",
     [
         "🏠 Resumo",
         "📊 Gastos",
         "💳 Compromissos",
+        "💸 Rotativo",
         "🧠 Diagnóstico IA",
         "🎯 Plano de Economia",
         "🤖 Ensinar Robô",
@@ -510,8 +492,10 @@ pagina = st.sidebar.radio(
     label_visibility="collapsed"
 )
 
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📄 Faturas")
+
 
 with st.sidebar.expander("Enviar ou trocar faturas", expanded=True):
     pdfs = st.file_uploader(
@@ -520,6 +504,7 @@ with st.sidebar.expander("Enviar ou trocar faturas", expanded=True):
         accept_multiple_files=True,
         label_visibility="collapsed"
     )
+
 
 if pdfs:
     st.sidebar.markdown(
@@ -530,6 +515,7 @@ if pdfs:
         """,
         unsafe_allow_html=True
     )
+
 
 senha_pdf = st.sidebar.text_input("Senha dos PDFs", type="password")
 analisar = st.sidebar.button("Analisar faturas", use_container_width=True)
@@ -642,9 +628,11 @@ if pagina == "⚙️ Auditoria":
 
 dados_prontos = "diagnostico" in st.session_state
 
+
 if not dados_prontos:
     st.info("Envie suas faturas e clique em Analisar para gerar o diagnóstico.")
     st.stop()
+
 
 documentos = st.session_state["documentos"]
 df_transacoes = st.session_state["df_transacoes"]
@@ -654,13 +642,16 @@ df_parcelamentos = st.session_state["df_parcelamentos"]
 diagnostico = st.session_state["diagnostico"]
 recomendacoes = st.session_state["recomendacoes"]
 
+
 resultado_compromissos = st.session_state.get(
     "resultado_compromissos",
     analisar_compromissos(df_parcelamentos, diagnostico["gasto_total"])
 )
 
+
 df_grafico = preparar_resumo_para_grafico(resumo_categoria)
 df_faturas = preparar_evolucao_faturas(df_base)
+
 
 gasto_total = diagnostico["gasto_total"]
 maior_categoria = diagnostico["categoria_principal"]
@@ -674,8 +665,10 @@ if pagina == "🏠 Resumo":
 
     with c1:
         card_html("Gasto analisado", moeda(gasto_total), "Total das faturas", "#2563EB")
+
     with c2:
         card_html("Maior concentração", maior_categoria, "Categoria principal", "#F59E0B")
+
     with c3:
         card_html(
             "Parcelas futuras",
@@ -683,6 +676,7 @@ if pagina == "🏠 Resumo":
             f"Impacto mensal: {moeda(resultado_compromissos['impacto_mensal'])}",
             "#EF4444"
         )
+
     with c4:
         card_html("Saúde financeira", classificar_score(score), f"Score {score}/100", "#22C55E")
 
@@ -704,10 +698,11 @@ if pagina == "🏠 Resumo":
     with a1:
         if not df_grafico.empty:
             maior_valor = df_grafico.iloc[0]["Valor"]
-            percentual = (maior_valor / df_grafico["Valor"].sum()) * 100
+            percentual_categoria = (maior_valor / df_grafico["Valor"].sum()) * 100
+
             insight_card(
                 "⚠️ Maior atenção",
-                f"{df_grafico.iloc[0]['Categoria']} representa {percentual:.1f}% dos seus gastos.",
+                f"{df_grafico.iloc[0]['Categoria']} representa {percentual_categoria:.1f}% dos seus gastos.",
                 "#F59E0B"
             )
 
@@ -729,6 +724,7 @@ if pagina == "🏠 Resumo":
 
     if df_faturas.empty:
         st.warning("Não foi possível identificar os valores por fatura.")
+
     else:
         df_faturas = df_faturas.copy()
         df_faturas["Valor_formatado"] = df_faturas["Valor"].apply(moeda)
@@ -840,12 +836,13 @@ elif pagina == "📊 Gastos":
     cols = st.columns(5)
 
     for i, (_, row) in enumerate(top5.iterrows()):
-        percentual = (row["Valor"] / df_grafico["Valor"].sum()) * 100
+        percentual_categoria = (row["Valor"] / df_grafico["Valor"].sum()) * 100
+
         with cols[i]:
             card_html(
                 f"{i + 1}º {row['Categoria']}",
                 moeda(row["Valor"]),
-                f"{percentual:.1f}% do total",
+                f"{percentual_categoria:.1f}% do total",
                 CORES[i]
             )
 
@@ -875,6 +872,7 @@ elif pagina == "💳 Compromissos":
             "Estoque das parcelas futuras",
             "#EF4444"
         )
+
     with c2:
         card_html(
             "Impacto mensal",
@@ -882,6 +880,7 @@ elif pagina == "💳 Compromissos":
             "Soma das parcelas por mês",
             "#F59E0B"
         )
+
     with c3:
         card_html(
             "Peso mensal",
@@ -889,6 +888,7 @@ elif pagina == "💳 Compromissos":
             resultado_compromissos["nivel_risco"],
             "#EF4444"
         )
+
     with c4:
         card_html(
             "Maior parcela mensal",
@@ -911,6 +911,7 @@ elif pagina == "💳 Compromissos":
 
     if top_compromissos.empty:
         st.info("Nenhuma compra parcelada em aberto foi identificada.")
+
     else:
         st.dataframe(top_compromissos.round(2), use_container_width=True, hide_index=True)
 
@@ -920,6 +921,7 @@ elif pagina == "💳 Compromissos":
 
     if top_impacto.empty:
         st.info("Nenhum impacto mensal identificado.")
+
     else:
         st.dataframe(top_impacto.round(2), use_container_width=True, hide_index=True)
 
@@ -929,11 +931,251 @@ elif pagina == "💳 Compromissos":
 
     if tabela_docs.empty:
         st.info("Nenhum arquivo processado encontrado.")
+
     else:
         st.dataframe(tabela_docs, use_container_width=True, hide_index=True)
 
     st.markdown('<div class="section-title">Relatório detalhado de parcelamentos</div>', unsafe_allow_html=True)
     st.dataframe(df_parcelamentos.round(2), use_container_width=True)
+
+
+elif pagina == "💸 Rotativo":
+
+    st.header("Rotativo do cartão e decisões da fatura")
+
+    st.markdown(
+        '<div class="section-title">Se eu não pagar a fatura inteira, o que acontece?</div>',
+        unsafe_allow_html=True
+    )
+
+    col_r1, col_r2, col_r3, col_r4 = st.columns(4)
+
+    with col_r1:
+        valor_fatura_rotativo = st.number_input(
+            "Valor da fatura",
+            min_value=0.0,
+            value=float(gasto_total),
+            step=100.0,
+            format="%.2f"
+        )
+
+    with col_r2:
+        pagamento_minimo = st.number_input(
+            "Pagamento mínimo",
+            min_value=0.0,
+            value=max(float(gasto_total) * 0.15, 0.0),
+            step=50.0,
+            format="%.2f"
+        )
+
+    with col_r3:
+        pagamento_realizado = st.number_input(
+            "Quanto pretende pagar",
+            min_value=0.0,
+            value=float(gasto_total),
+            step=100.0,
+            format="%.2f"
+        )
+
+    with col_r4:
+        renda_mensal = st.number_input(
+            "Renda mensal líquida",
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            format="%.2f"
+        )
+
+    juros_mensal = st.slider(
+        "Juros estimado do rotativo ao mês (%)",
+        min_value=0.0,
+        max_value=25.0,
+        value=12.0,
+        step=0.5
+    )
+
+    resultado_rotativo = analisar_pagamento_fatura(
+        valor_fatura=valor_fatura_rotativo,
+        pagamento_realizado=pagamento_realizado,
+        pagamento_minimo=pagamento_minimo,
+        renda_mensal=renda_mensal,
+        juros_mensal=juros_mensal / 100,
+        meses=12
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    with c1:
+        card_html(
+            "Valor da fatura",
+            moeda(resultado_rotativo["valor_fatura"]),
+            "Total informado",
+            "#3B82F6"
+        )
+
+    with c2:
+        card_html(
+            "Valor pago",
+            moeda(resultado_rotativo["pagamento_realizado"]),
+            f"{resultado_rotativo['percentual_pago']:.1f}% da fatura",
+            "#22C55E"
+        )
+
+    with c3:
+        card_html(
+            "Saldo que vira dívida",
+            moeda(resultado_rotativo["saldo_financiado"]),
+            f"{resultado_rotativo['percentual_nao_pago']:.1f}% não pago",
+            "#EF4444"
+        )
+
+    with c4:
+        card_html(
+            "Custo em 12 meses",
+            moeda(resultado_rotativo["custo_360"]),
+            resultado_rotativo["status"],
+            "#EF4444"
+        )
+
+    insight_card(
+        "🧾 Resposta direta para o cliente",
+        gerar_texto_decisao_pagamento(resultado_rotativo).replace("\n", "<br>"),
+        "#EF4444" if resultado_rotativo["saldo_financiado"] > 0 else "#22C55E"
+    )
+
+    st.markdown('<div class="section-title">Comparação rápida de cenários</div>', unsafe_allow_html=True)
+
+    comparativo = gerar_resumo_comparativo(
+        valor_fatura=valor_fatura_rotativo,
+        pagamento_minimo=pagamento_minimo,
+        renda_mensal=renda_mensal,
+        juros_mensal=juros_mensal / 100
+    )
+
+    comparativo_exibicao = comparativo.copy()
+
+    for col in ["valor_pago", "saldo_financiado", "custo_12_meses"]:
+        if col in comparativo_exibicao.columns:
+            comparativo_exibicao[col] = comparativo_exibicao[col].apply(moeda)
+
+    st.dataframe(comparativo_exibicao, use_container_width=True, hide_index=True)
+
+    st.markdown('<div class="section-title">Evolução da dívida no tempo</div>', unsafe_allow_html=True)
+
+    simulacao = resultado_rotativo.get("simulacao", pd.DataFrame())
+
+    if simulacao is None or simulacao.empty or resultado_rotativo["saldo_financiado"] <= 0:
+        st.success("Sem saldo financiado para simular juros.")
+
+    else:
+        grafico = simulacao.copy()
+        grafico["saldo_formatado"] = grafico["saldo_estimado"].apply(moeda)
+
+        fig_rotativo = px.line(
+            grafico,
+            x="mes",
+            y="saldo_estimado",
+            markers=True,
+            text="saldo_formatado"
+        )
+
+        fig_rotativo.update_traces(
+            textposition="top center",
+            line_width=4,
+            marker_size=9
+        )
+
+        fig_rotativo.update_layout(
+            height=420,
+            paper_bgcolor="rgba(0,0,0,0)",
+            plot_bgcolor="rgba(0,0,0,0)",
+            font=dict(color="white", size=13),
+            xaxis_title="Meses",
+            yaxis_title="Saldo estimado",
+            showlegend=False
+        )
+
+        fig_rotativo.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.08)")
+        fig_rotativo.update_xaxes(showgrid=False)
+
+        st.plotly_chart(fig_rotativo, use_container_width=True)
+
+    st.markdown('<div class="section-title">Posso assumir uma nova compra parcelada?</div>', unsafe_allow_html=True)
+
+    col_n1, col_n2, col_n3 = st.columns(3)
+
+    with col_n1:
+        nova_compra_valor = st.number_input(
+            "Valor da nova compra",
+            min_value=0.0,
+            value=0.0,
+            step=100.0,
+            format="%.2f"
+        )
+
+    with col_n2:
+        quantidade_parcelas = st.number_input(
+            "Quantidade de parcelas",
+            min_value=1,
+            value=10,
+            step=1
+        )
+
+    with col_n3:
+        renda_para_compra = st.number_input(
+            "Renda mensal para simulação",
+            min_value=0.0,
+            value=float(renda_mensal),
+            step=100.0,
+            format="%.2f"
+        )
+
+    simulacao_compra = simular_nova_parcela(
+        parcela_atual_mensal=resultado_compromissos.get("impacto_mensal", 0),
+        nova_compra_valor=nova_compra_valor,
+        quantidade_parcelas=quantidade_parcelas,
+        renda_mensal=renda_para_compra
+    )
+
+    s1, s2, s3, s4 = st.columns(4)
+
+    with s1:
+        card_html(
+            "Nova parcela",
+            moeda(simulacao_compra["nova_parcela"]),
+            f"{quantidade_parcelas}x",
+            "#3B82F6"
+        )
+
+    with s2:
+        card_html(
+            "Parcelas atuais",
+            moeda(resultado_compromissos.get("impacto_mensal", 0)),
+            "Compromisso mensal atual",
+            "#F59E0B"
+        )
+
+    with s3:
+        card_html(
+            "Novo impacto mensal",
+            moeda(simulacao_compra["impacto_total_mensal"]),
+            simulacao_compra["nivel"],
+            "#EF4444"
+        )
+
+    with s4:
+        card_html(
+            "Peso na renda",
+            f"{simulacao_compra['peso_novo_na_renda']:.1f}%",
+            "Depois da compra",
+            "#8B5CF6"
+        )
+
+    insight_card(
+        "🎯 Recomendação sobre a nova compra",
+        simulacao_compra["recomendacao"],
+        "#F59E0B"
+    )
 
 
 elif pagina == "🧠 Diagnóstico IA":
@@ -971,6 +1213,7 @@ elif pagina == "🎯 Plano de Economia":
             f"Você possui {moeda(resultado_compromissos['valor_restante_total'])} em parcelas futuras. O impacto mensal estimado é de {moeda(resultado_compromissos['impacto_mensal'])}. Antes de novas compras, reduza os maiores compromissos.",
             "#EF4444"
         )
+
     elif not df_grafico.empty:
         principal = df_grafico.iloc[0]["Categoria"]
         valor_principal = df_grafico.iloc[0]["Valor"]
