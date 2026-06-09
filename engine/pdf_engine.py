@@ -1,18 +1,18 @@
 # ============================================================
 # PDF ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão profissional — Streamlit + auditoria + qualidade da extração
+# Versão profissional — Streamlit + auditoria + filtro institucional
 # ============================================================
 
 import re
 from pypdf import PdfReader
 
 
-def normalizar_texto_pdf(texto):
-    """
-    Normaliza o texto extraído sem destruir quebras de linha importantes.
-    """
+# ============================================================
+# NORMALIZAÇÃO
+# ============================================================
 
+def normalizar_texto_pdf(texto):
     if texto is None:
         return ""
 
@@ -34,11 +34,111 @@ def normalizar_texto_pdf(texto):
     return "\n".join(linhas)
 
 
-def avaliar_qualidade_texto(texto, paginas):
-    """
-    Avalia se a extração parece boa ou suspeita.
-    """
+def normalizar_linha_para_filtro(linha):
+    linha = str(linha or "").upper()
 
+    substituicoes = {
+        "Á": "A", "À": "A", "Ã": "A", "Â": "A",
+        "É": "E", "Ê": "E",
+        "Í": "I",
+        "Ó": "O", "Õ": "O", "Ô": "O",
+        "Ú": "U",
+        "Ç": "C",
+    }
+
+    for original, novo in substituicoes.items():
+        linha = linha.replace(original, novo)
+
+    linha = re.sub(r"\s+", " ", linha)
+
+    return linha.strip()
+
+
+# ============================================================
+# FILTRO INSTITUCIONAL
+# ============================================================
+
+PADROES_ADMINISTRATIVOS = [
+    "PAGAMENTO MINIMO",
+    "PAGAMENTO MÍNIMO",
+    "ENCARGOS EM CASO DE PAGAMENTO",
+    "ENCARGOS ROTATIVOS",
+    "ENCARGO ROTATIVO",
+    "ROTATIVO",
+    "IOF DIARIO",
+    "IOF DIÁRIO",
+    "IOF ADICIONAL",
+    "IOF DO ROTATIVO",
+    "JUROS",
+    "MULTA",
+    "MORA",
+    "CET",
+    "TAXA EFETIVA",
+    "TAXA EFETIVA MENSAL",
+    "TAXA EFETIVA ANUAL",
+    "VALOR TOTAL FINANCIADO",
+    "VALOR FINANCIADO",
+    "TOTAL A PAGAR EM ENCARGOS",
+    "TOTAL A PAGAR",
+    "FINANCIAMENTO",
+    "SIMULACAO",
+    "SIMULAÇÃO",
+    "SIMULADO",
+    "PAGAMENTO PARCIAL SIMULADO",
+    "SALDO QUE PODE VIRAR ROTATIVO",
+    "VALOR FINANCIADO SERA",
+    "VALOR FINANCIADO SERÁ",
+    "OBSERVACAO SIMULACAO",
+    "OBSERVAÇÃO SIMULAÇÃO",
+    "CASO DE PAGAMENTO MINIMO",
+    "CASO DE PAGAMENTO MÍNIMO",
+]
+
+
+def linha_administrativa(linha):
+    linha_norm = normalizar_linha_para_filtro(linha)
+
+    if not linha_norm:
+        return True
+
+    for padrao in PADROES_ADMINISTRATIVOS:
+        padrao_norm = normalizar_linha_para_filtro(padrao)
+        if padrao_norm in linha_norm:
+            return True
+
+    return False
+
+
+def limpar_linhas_administrativas(texto):
+    texto = str(texto or "")
+
+    linhas_limpas = []
+    removidas = []
+
+    for linha in texto.splitlines():
+        linha_original = linha.strip()
+
+        if not linha_original:
+            continue
+
+        if linha_original.startswith("--- PAGINA"):
+            linhas_limpas.append(linha_original)
+            continue
+
+        if linha_administrativa(linha_original):
+            removidas.append(linha_original)
+            continue
+
+        linhas_limpas.append(linha_original)
+
+    return "\n".join(linhas_limpas), removidas
+
+
+# ============================================================
+# QUALIDADE
+# ============================================================
+
+def avaliar_qualidade_texto(texto, paginas):
     texto = str(texto or "")
     tamanho = len(texto.strip())
 
@@ -79,11 +179,11 @@ def avaliar_qualidade_texto(texto, paginas):
     }
 
 
-def extrair_texto_pdf(uploaded_file, senha=None):
-    """
-    Lê um PDF enviado pelo Streamlit e retorna texto extraído com auditoria.
-    """
+# ============================================================
+# EXTRAÇÃO PDF
+# ============================================================
 
+def extrair_texto_pdf(uploaded_file, senha=None):
     nome_arquivo = getattr(uploaded_file, "name", "arquivo_desconhecido")
 
     try:
@@ -96,10 +196,13 @@ def extrair_texto_pdf(uploaded_file, senha=None):
                     "status": "erro",
                     "erro": "PDF protegido. Senha não informada.",
                     "texto": "",
+                    "texto_original": "",
+                    "linhas_removidas": [],
                     "paginas": 0,
                     "qualidade": "erro",
                     "alerta": "Informe a senha para desbloquear este PDF.",
-                    "caracteres": 0
+                    "caracteres": 0,
+                    "linhas_removidas_total": 0
                 }
 
             resultado = reader.decrypt(senha)
@@ -110,10 +213,13 @@ def extrair_texto_pdf(uploaded_file, senha=None):
                     "status": "erro",
                     "erro": "Senha incorreta ou PDF não desbloqueado.",
                     "texto": "",
+                    "texto_original": "",
+                    "linhas_removidas": [],
                     "paginas": 0,
                     "qualidade": "erro",
                     "alerta": "Senha incorreta ou PDF não pôde ser desbloqueado.",
-                    "caracteres": 0
+                    "caracteres": 0,
+                    "linhas_removidas_total": 0
                 }
 
         textos_paginas = []
@@ -131,13 +237,19 @@ def extrair_texto_pdf(uploaded_file, senha=None):
                     f"--- PAGINA {numero_pagina} ---\n{texto_pagina}"
                 )
 
-        texto_total = "\n\n".join(textos_paginas)
-        texto_total = normalizar_texto_pdf(texto_total)
+        texto_original = "\n\n".join(textos_paginas)
+        texto_original = normalizar_texto_pdf(texto_original)
+
+        texto_filtrado, linhas_removidas = limpar_linhas_administrativas(
+            texto_original
+        )
+
+        texto_filtrado = normalizar_texto_pdf(texto_filtrado)
 
         paginas = len(reader.pages)
 
         avaliacao = avaliar_qualidade_texto(
-            texto=texto_total,
+            texto=texto_filtrado,
             paginas=paginas
         )
 
@@ -150,7 +262,10 @@ def extrair_texto_pdf(uploaded_file, senha=None):
             "arquivo": nome_arquivo,
             "status": status,
             "erro": "",
-            "texto": texto_total,
+            "texto": texto_filtrado,
+            "texto_original": texto_original,
+            "linhas_removidas": linhas_removidas[:500],
+            "linhas_removidas_total": len(linhas_removidas),
             "paginas": paginas,
             "qualidade": avaliacao["qualidade"],
             "alerta": avaliacao["alerta"],
@@ -163,6 +278,9 @@ def extrair_texto_pdf(uploaded_file, senha=None):
             "status": "erro",
             "erro": str(erro),
             "texto": "",
+            "texto_original": "",
+            "linhas_removidas": [],
+            "linhas_removidas_total": 0,
             "paginas": 0,
             "qualidade": "erro",
             "alerta": "Falha ao processar o PDF.",
@@ -170,11 +288,11 @@ def extrair_texto_pdf(uploaded_file, senha=None):
         }
 
 
-def processar_pdfs(uploaded_files=None, senha=None):
-    """
-    Processa múltiplos PDFs enviados pelo Streamlit.
-    """
+# ============================================================
+# PROCESSAMENTO EM LOTE
+# ============================================================
 
+def processar_pdfs(uploaded_files=None, senha=None):
     documentos = []
 
     if not uploaded_files:
@@ -191,24 +309,26 @@ def processar_pdfs(uploaded_files=None, senha=None):
     return documentos
 
 
-def resumo_pdfs(documentos):
-    """
-    Gera um resumo simples da qualidade dos PDFs processados.
-    """
+# ============================================================
+# RESUMO
+# ============================================================
 
+def resumo_pdfs(documentos):
     if not documentos:
         return {
             "arquivos": 0,
             "ok": 0,
             "alertas": 0,
             "erros": 0,
-            "caracteres_total": 0
+            "caracteres_total": 0,
+            "linhas_removidas_total": 0
         }
 
     ok = 0
     alertas = 0
     erros = 0
     caracteres_total = 0
+    linhas_removidas_total = 0
 
     for doc in documentos:
         status = doc.get("status", "")
@@ -221,11 +341,13 @@ def resumo_pdfs(documentos):
             erros += 1
 
         caracteres_total += int(doc.get("caracteres", 0) or 0)
+        linhas_removidas_total += int(doc.get("linhas_removidas_total", 0) or 0)
 
     return {
         "arquivos": len(documentos),
         "ok": ok,
         "alertas": alertas,
         "erros": erros,
-        "caracteres_total": caracteres_total
+        "caracteres_total": caracteres_total,
+        "linhas_removidas_total": linhas_removidas_total
     }
