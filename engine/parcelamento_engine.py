@@ -1,7 +1,7 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão profissional — CONFIRMADO, SUSPEITO e QUITADO
+# Versão determinística — parcela explícita vira cálculo exato
 # ============================================================
 
 import re
@@ -335,31 +335,14 @@ def consolidar_parcelamentos(registros):
 
             valor_total_compra = total * valor_parcela
             valor_pago = maior_parcela * valor_parcela
-            valor_restante_teorico = parcelas_abertas * valor_parcela
-
-            encontrou_varias = len(grupo) >= 2
-            encontrou_progressao = maior_parcela >= 2
-            veio_de_nx = "NX_DE" in tipos or "PARCELA_PENDENTE_NX" in tipos
+            valor_restante = parcelas_abertas * valor_parcela
 
             if parcelas_abertas == 0:
                 status = "QUITADO"
                 classificacao = "QUITADO"
-                valor_restante = 0.0
-
-            elif veio_de_nx:
-                status = "ABERTO"
-                classificacao = "CONFIRMADO"
-                valor_restante = valor_restante_teorico
-
-            elif encontrou_varias or encontrou_progressao:
-                status = "ABERTO"
-                classificacao = "CONFIRMADO"
-                valor_restante = valor_restante_teorico
-
             else:
-                status = "SUSPEITO"
-                classificacao = "SUSPEITO"
-                valor_restante = 0.0
+                status = "ABERTO"
+                classificacao = "ABERTO_CALCULADO"
 
             consolidados.append({
                 "arquivo_fatura": arquivo,
@@ -451,7 +434,6 @@ def resumo_parcelamentos(df_parcelamentos):
         return {
             "parcelamentos": 0,
             "abertos": 0,
-            "suspeitos": 0,
             "quitados": 0,
             "valor_restante": 0.0,
             "valor_total_compras": 0.0,
@@ -459,13 +441,11 @@ def resumo_parcelamentos(df_parcelamentos):
         }
 
     abertos = df_parcelamentos[df_parcelamentos["status"] == "ABERTO"]
-    suspeitos = df_parcelamentos[df_parcelamentos["status"] == "SUSPEITO"]
     quitados = df_parcelamentos[df_parcelamentos["status"] == "QUITADO"]
 
     return {
         "parcelamentos": int(len(df_parcelamentos)),
         "abertos": int(len(abertos)),
-        "suspeitos": int(len(suspeitos)),
         "quitados": int(len(quitados)),
         "valor_restante": float(abertos["valor_restante"].sum()) if not abertos.empty else 0.0,
         "valor_total_compras": float(abertos["valor_total_compra"].sum()) if not abertos.empty else 0.0,
