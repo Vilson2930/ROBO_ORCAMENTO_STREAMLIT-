@@ -535,7 +535,12 @@ if analisar:
             df_base = processar_merchants(df_transacoes)
             df_base = processar_categorias(df_base)
             resumo_categoria = resumo_categorias(df_base)
-            df_parcelamentos = processar_parcelamentos(df_base)
+
+            df_parcelamentos = processar_parcelamentos(
+                documentos=documentos,
+                df_base=df_base
+            )
+
             resumo_parcelas = resumo_parcelamentos(df_parcelamentos)
 
             diagnostico_base = gerar_diagnostico(
