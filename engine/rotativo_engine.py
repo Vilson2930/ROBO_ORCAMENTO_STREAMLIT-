@@ -62,7 +62,7 @@ def converter_valor(valor):
 # SIMULAÇÃO DE JUROS
 # ============================================================
 
-def simular_juros_compostos(saldo, juros_mensal=0.12, meses=12):
+def simular_juros_compostos(saldo, juros_mensal=0.15, meses=12):
     saldo_inicial = converter_valor(saldo)
     juros_mensal = converter_valor(juros_mensal)
     meses = int(meses or 12)
@@ -134,7 +134,7 @@ def analisar_pagamento_fatura(
     pagamento_realizado,
     pagamento_minimo=None,
     renda_mensal=None,
-    juros_mensal=0.12,
+    juros_mensal=0.15,
     meses=12
 ):
     valor_fatura = converter_valor(valor_fatura)
@@ -285,7 +285,7 @@ def analisar_pagamento_fatura(
 def simular_pagamento_integral(
     valor_fatura,
     renda_mensal=None,
-    juros_mensal=0.12
+    juros_mensal=0.15
 ):
     return analisar_pagamento_fatura(
         valor_fatura=valor_fatura,
@@ -301,7 +301,7 @@ def simular_pagamento_minimo(
     valor_fatura,
     pagamento_minimo,
     renda_mensal=None,
-    juros_mensal=0.12
+    juros_mensal=0.15
 ):
     return analisar_pagamento_fatura(
         valor_fatura=valor_fatura,
@@ -316,7 +316,7 @@ def simular_pagamento_minimo(
 def simular_pagamento_metade(
     valor_fatura,
     renda_mensal=None,
-    juros_mensal=0.12
+    juros_mensal=0.15
 ):
     pagamento = converter_valor(valor_fatura) * 0.50
 
@@ -335,7 +335,7 @@ def simular_pagamento_percentual(
     percentual_pagamento,
     pagamento_minimo=None,
     renda_mensal=None,
-    juros_mensal=0.12
+    juros_mensal=0.15
 ):
     valor_fatura = converter_valor(valor_fatura)
     percentual_pagamento = converter_valor(percentual_pagamento)
