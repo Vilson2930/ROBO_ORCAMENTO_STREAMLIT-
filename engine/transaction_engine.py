@@ -1,14 +1,91 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Débitos reais + compras parceladas em bloco
+# Versão integrada — Fase 2
+#
+# Integra:
+# - patterns.py
+# - parcel_patterns.py
+# - normalizer.py
+# - confidence.py
+# - block_reader.py
+#
+# Preserva:
+# - leitura linha a linha
+# - leitura por data + valor
+# - leitura por data por extenso
+# - leitura de parcelamentos em bloco
+# - compatibilidade com app.py atual
 # ============================================================
 
 import re
 import pandas as pd
 import unicodedata
 
-MESES = {
+
+# ============================================================
+# IMPORTS MODULARES COM FALLBACK
+# ============================================================
+
+try:
+    from engine.patterns import (
+        MESES as MESES_EXTERNOS,
+        BLACKLIST as BLACKLIST_EXTERNA,
+        PADRAO_DATA_CURTA as PADRAO_DATA_CURTA_EXTERNO,
+        PADRAO_DATA_NUMERICA as PADRAO_DATA_VALOR_EXTERNO,
+        PADRAO_DATA_EXTENSO as PADRAO_EXTENSO_VALOR_EXTERNO,
+        PADRAO_VALOR_REAIS as PADRAO_VALOR_EXTERNO,
+        PADRAO_NX_DE as PADRAO_NX_DE_EXTERNO,
+    )
+except Exception:
+    MESES_EXTERNOS = None
+    BLACKLIST_EXTERNA = None
+    PADRAO_DATA_CURTA_EXTERNO = None
+    PADRAO_DATA_VALOR_EXTERNO = None
+    PADRAO_EXTENSO_VALOR_EXTERNO = None
+    PADRAO_VALOR_EXTERNO = None
+    PADRAO_NX_DE_EXTERNO = None
+
+
+try:
+    from engine.normalizer import (
+        normalizar_texto as normalizar_texto_externo,
+        limpar_descricao as limpar_descricao_externa,
+        converter_valor as converter_valor_externo,
+        normalizar_merchant as normalizar_merchant_externo,
+        descricao_valida as descricao_valida_externa,
+    )
+except Exception:
+    normalizar_texto_externo = None
+    limpar_descricao_externa = None
+    converter_valor_externo = None
+    normalizar_merchant_externo = None
+    descricao_valida_externa = None
+
+
+try:
+    from engine.confidence import calcular_confianca
+except Exception:
+    calcular_confianca = None
+
+
+try:
+    from engine.block_reader import ler_blocos
+except Exception:
+    ler_blocos = None
+
+
+try:
+    from engine.parcel_patterns import TODOS_PADROES_PARCELAMENTO
+except Exception:
+    TODOS_PADROES_PARCELAMENTO = []
+
+
+# ============================================================
+# CONFIGURAÇÕES BASE
+# ============================================================
+
+MESES_FALLBACK = {
     "jan": "01", "janeiro": "01",
     "fev": "02", "fevereiro": "02",
     "mar": "03", "marco": "03", "março": "03",
@@ -23,7 +100,7 @@ MESES = {
     "dez": "12", "dezembro": "12",
 }
 
-BLACKLIST = [
+BLACKLIST_FALLBACK = [
     "DESPESAS DA FATURA", "DESPESAS DO MES", "DESPESAS DO MÊS",
     "PAGAMENTO TOTAL", "PAGAMENTO MINIMO", "PAGAMENTO MÍNIMO",
     "PAGAMENTO ON LINE", "PAGAMENTO ONLINE", "PAGAMENTO -", "PAGAMENTO +",
@@ -34,35 +111,89 @@ BLACKLIST = [
     "TOTAL DA FATURA", "VALOR TOTAL DA FATURA", "TOTAL A PAGAR",
     "LIMITE", "VENCIMENTO", "FECHAMENTO", "MELHOR DIA",
     "PAGINA", "PÁGINA", "RESUMO", "FATURA",
-    "VILSON JOSE PEREIRA PINTO", "5364", "4593",
     "SALDO", "CREDITO", "CRÉDITO", "ESTORNO",
 ]
 
-PADRAO_DATA_VALOR = re.compile(
+MESES = MESES_EXTERNOS if MESES_EXTERNOS else MESES_FALLBACK
+BLACKLIST = BLACKLIST_EXTERNA if BLACKLIST_EXTERNA else BLACKLIST_FALLBACK
+
+
+# ============================================================
+# PADRÕES FALLBACK
+# ============================================================
+
+PADRAO_DATA_VALOR = PADRAO_DATA_VALOR_EXTERNO or re.compile(
     r"(?P<data>\d{2}/\d{2}(?:/\d{4})?)\s+"
     r"(?P<descricao>.+?)\s+"
     r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})$",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
-PADRAO_EXTENSO_VALOR = re.compile(
+PADRAO_EXTENSO_VALOR = PADRAO_EXTENSO_VALOR_EXTERNO or re.compile(
     r"(?P<dia>\d{1,2})\s+DE\s+(?P<mes>[A-ZÇ]+)\.?\s+(?P<ano>\d{4})\s+"
     r"(?P<descricao>.+?)\s+"
     r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})$",
-    re.IGNORECASE
+    re.IGNORECASE,
 )
 
-PADRAO_VALOR = re.compile(r"R\$\s*([\d\.]+,\d{2})", re.IGNORECASE)
-
-PADRAO_NX_DE = re.compile(
-    r"(?P<qtd>\d{1,2})\s*X\s*DE\s*R\$\s*(?P<valor>[\d\.]+,\d{2})",
-    re.IGNORECASE
+PADRAO_VALOR = PADRAO_VALOR_EXTERNO or re.compile(
+    r"R?\$?\s*([\d]{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})",
+    re.IGNORECASE,
 )
 
-PADRAO_DATA_CURTA = re.compile(r"\b\d{2}/\d{2}(?:/\d{4})?\b")
+PADRAO_NX_DE = PADRAO_NX_DE_EXTERNO or re.compile(
+    r"(?P<qtd>\d{1,2})\s*X\s*(?:DE|POR)?\s*R?\$?\s*(?P<valor>[\d\.]+,\d{2})",
+    re.IGNORECASE,
+)
 
+PADRAO_DATA_CURTA = PADRAO_DATA_CURTA_EXTERNO or re.compile(
+    r"\b\d{2}/\d{2}(?:/\d{4})?\b",
+    re.IGNORECASE,
+)
+
+PADRAO_PARC_EXPLICITA = re.compile(
+    r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*"
+    r"(?P<atual>\d{1,2})\s*(?:/|DE)\s*(?P<total>\d{1,2})\b",
+    re.IGNORECASE,
+)
+
+PADRAO_PARC_BARRA = re.compile(
+    r"\b(?P<atual>\d{1,2})\s*/\s*(?P<total>\d{1,2})\b",
+    re.IGNORECASE,
+)
+
+PADRAO_PARC_DE = re.compile(
+    r"\b(?P<atual>\d{1,2})\s*DE\s*(?P<total>\d{1,2})\b",
+    re.IGNORECASE,
+)
+
+PADRAO_NX = re.compile(
+    r"\b(?P<total>\d{1,2})\s*X\b",
+    re.IGNORECASE,
+)
+
+PADRAO_EM_NX = re.compile(
+    r"\bEM\s*(?P<total>\d{1,2})\s*X\b",
+    re.IGNORECASE,
+)
+
+PADRAO_N_PARCELAS = re.compile(
+    r"\b(?P<total>\d{1,2})\s*(?:PARCELAS|PRESTACOES|PRESTAÇÕES)\b",
+    re.IGNORECASE,
+)
+
+
+# ============================================================
+# NORMALIZAÇÃO
+# ============================================================
 
 def normalizar_texto(texto):
+    if normalizar_texto_externo:
+        try:
+            return normalizar_texto_externo(texto)
+        except Exception:
+            pass
+
     texto = str(texto or "")
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
@@ -72,24 +203,91 @@ def normalizar_texto(texto):
 
 
 def limpar_descricao(descricao):
-    descricao = str(descricao or "")
-    descricao = re.sub(r"R\$\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\d{1,2}\s*X\s*DE\s*R?\$?\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", descricao)
-    descricao = re.sub(r"R\$", "", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"[*]+", " ", descricao)
-    descricao = re.sub(r"\s+", " ", descricao)
-    return descricao.strip(" -")
+    if limpar_descricao_externa:
+        try:
+            return limpar_descricao_externa(descricao)
+        except Exception:
+            pass
+
+    texto = str(descricao or "")
+    texto = re.sub(r"R?\$?\s*[\d\.]+,\d{2}", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\d{1,2}\s*X\s*(?:DE|POR)?\s*R?\$?\s*[\d\.]+,\d{2}", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(
+        r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*\d{1,2}\s*(?:/|DE)\s*\d{1,2}\b",
+        " ",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    texto = re.sub(r"\b\d{1,2}\s*/\s*\d{1,2}\b", " ", texto)
+    texto = re.sub(r"\b\d{1,2}\s*DE\s*\d{1,2}\b", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\b\d{1,2}\s*X\b", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", texto)
+    texto = re.sub(r"R\$", "", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"[*]+", " ", texto)
+    texto = re.sub(r"\s+", " ", texto)
+    return texto.strip(" -")
 
 
 def converter_valor(valor):
-    return float(str(valor).replace(".", "").replace(",", "."))
+    if converter_valor_externo:
+        try:
+            return converter_valor_externo(valor)
+        except Exception:
+            pass
+
+    try:
+        return float(
+            str(valor)
+            .replace("R$", "")
+            .replace(" ", "")
+            .replace(".", "")
+            .replace(",", ".")
+        )
+    except Exception:
+        return 0.0
+
+
+def normalizar_merchant_local(texto):
+    texto = limpar_descricao(texto)
+
+    if normalizar_merchant_externo:
+        try:
+            return normalizar_merchant_externo(texto)
+        except Exception:
+            pass
+
+    substituicoes = {
+        "MERC PAGO": "MERCADO PAGO",
+        "MERCPAGO": "MERCADO PAGO",
+        "MERCADOPAGO": "MERCADO PAGO",
+        "MP ": "MERCADO PAGO ",
+        "MP*": "MERCADO PAGO ",
+        "PAG SEGURO": "PAGSEGURO",
+        "PAG*SEGURO": "PAGSEGURO",
+        "GET NET": "GETNET",
+        "SAFRA PAY": "SAFRAPAY",
+        "BLU INSTITUICAO DE PAG": "BLU",
+        "BLU INSTITUICAO": "BLU",
+        "ADIQPAY": "ADIQ",
+        "ADIQPLU": "ADIQ",
+        "REDECARD": "REDE",
+    }
+
+    for antigo, novo in substituicoes.items():
+        texto = texto.replace(antigo, novo)
+
+    texto = re.sub(r"\s+", " ", texto)
+    return texto.strip()
 
 
 def extrair_ano_arquivo(nome_arquivo):
     m = re.search(r"(20\d{2})", str(nome_arquivo))
     return m.group(1) if m else "2026"
 
+
+# ============================================================
+# VALIDAÇÃO
+# ============================================================
 
 def linha_bloqueada(linha):
     texto = normalizar_texto(linha)
@@ -113,7 +311,7 @@ def linha_bloqueada(linha):
     if " - +" in texto or "+ R$" in texto or " + " in texto:
         return True
 
-    if len(texto) > 160:
+    if len(texto) > 180:
         return True
 
     if texto.count("*") >= 8:
@@ -123,6 +321,12 @@ def linha_bloqueada(linha):
 
 
 def descricao_valida(descricao):
+    if descricao_valida_externa:
+        try:
+            return descricao_valida_externa(descricao)
+        except Exception:
+            pass
+
     texto = normalizar_texto(descricao)
 
     if linha_bloqueada(texto):
@@ -131,7 +335,7 @@ def descricao_valida(descricao):
     if len(texto) < 3:
         return False
 
-    if len(texto) > 100:
+    if len(texto) > 120:
         return False
 
     if not re.search(r"[A-Z]", texto):
@@ -140,6 +344,253 @@ def descricao_valida(descricao):
     return True
 
 
+def calcular_score_local(
+    linha_original="",
+    descricao="",
+    valor=0,
+    data=None,
+    parcela_atual=None,
+    parcela_total=None,
+):
+    if calcular_confianca:
+        try:
+            return calcular_confianca(
+                linha_original=linha_original,
+                descricao=descricao,
+                valor=valor,
+                data=data,
+                parcela_atual=parcela_atual,
+                parcela_total=parcela_total,
+                merchant=descricao,
+            )
+        except Exception:
+            pass
+
+    score = 100
+    motivos = []
+
+    if not str(linha_original or "").strip():
+        score -= 15
+        motivos.append("SEM_LINHA_ORIGINAL")
+
+    if not str(descricao or "").strip():
+        score -= 20
+        motivos.append("SEM_DESCRICAO")
+
+    try:
+        if float(valor) <= 0:
+            score -= 30
+            motivos.append("VALOR_INVALIDO")
+    except Exception:
+        score -= 30
+        motivos.append("VALOR_INVALIDO")
+
+    if data in [None, ""]:
+        score -= 15
+        motivos.append("SEM_DATA")
+
+    if parcela_atual is not None and parcela_total is not None:
+        try:
+            if int(parcela_atual) > int(parcela_total):
+                score -= 20
+                motivos.append("PARCELA_MAIOR_QUE_TOTAL")
+        except Exception:
+            score -= 15
+            motivos.append("ERRO_PARCELA")
+
+    score = max(0, min(100, int(score)))
+
+    if score >= 98:
+        nivel = "EXCELENTE"
+    elif score >= 90:
+        nivel = "ALTA"
+    elif score >= 75:
+        nivel = "BOA"
+    elif score >= 60:
+        nivel = "MEDIA"
+    else:
+        nivel = "BAIXA"
+
+    return {
+        "confianca_extracao": score,
+        "confidence_level": nivel,
+        "confidence_version": "local",
+        "motivos": motivos,
+    }
+
+
+# ============================================================
+# PARCELAMENTO
+# ============================================================
+
+def extrair_parcela_linha(linha):
+    texto = normalizar_texto(linha)
+
+    m = PADRAO_PARC_EXPLICITA.search(texto)
+
+    if m:
+        atual = int(m.group("atual"))
+        total = int(m.group("total"))
+
+        if 1 <= atual <= total <= 60:
+            return atual, total, 0.0, "PARCELA_EXPLICITA"
+
+    m = PADRAO_NX_DE.search(texto)
+
+    if m:
+        total = int(m.group("qtd"))
+        valor_parcela = converter_valor(m.group("valor"))
+
+        if 1 <= total <= 60:
+            return 0, total, valor_parcela, "NX_DE_VALOR"
+
+    m = PADRAO_EM_NX.search(texto)
+
+    if m:
+        total = int(m.group("total"))
+
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "EM_NX"
+
+    m = PADRAO_NX.search(texto)
+
+    if m:
+        total = int(m.group("total"))
+
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "NX"
+
+    m = PADRAO_N_PARCELAS.search(texto)
+
+    if m:
+        total = int(m.group("total"))
+
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "N_PARCELAS"
+
+    # Uso dos padrões externos como reforço.
+    for padrao in TODOS_PADROES_PARCELAMENTO:
+        try:
+            m = padrao.search(texto)
+
+            if not m:
+                continue
+
+            gd = m.groupdict()
+
+            atual = int(gd.get("atual") or 0)
+            total = int(gd.get("total") or 0)
+
+            if total > 0 and 0 <= atual <= total <= 60:
+                return atual, total, 0.0, "PADRAO_EXTERNO"
+
+        except Exception:
+            continue
+
+    # 01/06 só é aceito como parcela quando existe contexto.
+    # Isso evita confundir data com parcelamento.
+    tem_contexto = any(p in texto for p in [
+        "PARC", "PARCELA", "PARCELADO", "COMPRA", "SEM JUROS", "LOJA",
+        "MAGAZINE", "CASAS", "SHOP", "STORE", "MERCADO PAGO", "MP ",
+        "PARCELAS", "PRESTACOES", "PRESTAÇÕES"
+    ])
+
+    if tem_contexto:
+        m = PADRAO_PARC_BARRA.search(texto)
+
+        if m:
+            atual = int(m.group("atual"))
+            total = int(m.group("total"))
+
+            if 1 <= atual <= total <= 60:
+                return atual, total, 0.0, "BARRA_CONTEXTO"
+
+        m = PADRAO_PARC_DE.search(texto)
+
+        if m:
+            atual = int(m.group("atual"))
+            total = int(m.group("total"))
+
+            if 1 <= atual <= total <= 60:
+                return atual, total, 0.0, "DE_CONTEXTO"
+
+    return 0, 0, 0.0, ""
+
+
+# ============================================================
+# MONTAGEM PADRÃO
+# ============================================================
+
+def montar_item(
+    arquivo,
+    data,
+    descricao,
+    valor,
+    origem,
+    linha_original,
+    parcelado=False,
+    parcela_atual=0,
+    total_parcelas=0,
+    parcelas_abertas=0,
+    valor_parcela=0.0,
+    tipo_parcela="",
+):
+    descricao_limpa = limpar_descricao(descricao)
+    descricao_norm = normalizar_merchant_local(descricao_limpa)
+
+    if not descricao_valida(descricao_norm):
+        return None
+
+    valor = float(valor or 0)
+
+    if valor <= 0:
+        return None
+
+    if parcelado and valor_parcela <= 0:
+        valor_parcela = valor
+
+    if parcelado and total_parcelas > 0 and parcelas_abertas <= 0:
+        parcelas_abertas = max(total_parcelas - parcela_atual, 0)
+
+    conf = calcular_score_local(
+        linha_original=linha_original,
+        descricao=descricao_norm,
+        valor=valor,
+        data=data,
+        parcela_atual=parcela_atual if parcelado else None,
+        parcela_total=total_parcelas if parcelado else None,
+    )
+
+    motivos = conf.get("motivos", [])
+
+    if isinstance(motivos, list):
+        motivos = "; ".join(motivos)
+
+    return {
+        "arquivo_fatura": arquivo,
+        "data": data,
+        "descricao_original": descricao_norm,
+        "descricao_normalizada": descricao_norm,
+        "valor": valor,
+        "origem_extracao": origem,
+        "parcelado": bool(parcelado),
+        "parcela_atual": int(parcela_atual or 0),
+        "total_parcelas": int(total_parcelas or 0),
+        "parcelas_abertas": int(parcelas_abertas or 0),
+        "valor_parcela": float(valor_parcela or 0.0),
+        "tipo_parcela": tipo_parcela,
+        "linha_original_pdf": str(linha_original or ""),
+        "confianca_extracao": int(conf.get("confianca_extracao", conf.get("confidence_raw", 0)) or 0),
+        "nivel_confianca": conf.get("confidence_level", conf.get("nivel_confianca", "")),
+        "confidence_version": conf.get("confidence_version", ""),
+        "confidence_motivos": motivos,
+    }
+
+
+# ============================================================
+# EXTRAÇÃO LINHA A LINHA
+# ============================================================
+
 def extrair_linha_numerica(linha, arquivo):
     m = PADRAO_DATA_VALOR.search(linha.strip())
 
@@ -147,28 +598,30 @@ def extrair_linha_numerica(linha, arquivo):
         return None
 
     data = m.group("data")
-    descricao = limpar_descricao(m.group("descricao"))
+    descricao_raw = m.group("descricao")
     valor = converter_valor(m.group("valor"))
 
     if len(data) == 5:
         data = f"{data}/{extrair_ano_arquivo(arquivo)}"
 
-    if valor <= 0:
-        return None
+    pa, pt, vp, tipo = extrair_parcela_linha(descricao_raw)
+    parcelado = pt > 0
+    parcelas_abertas = max(pt - pa, 0) if parcelado else 0
 
-    if not descricao_valida(descricao):
-        return None
-
-    return {
-        "arquivo_fatura": arquivo,
-        "data": data,
-        "descricao_original": descricao,
-        "valor": valor,
-        "origem_extracao": "data_valor",
-        "parcelado": False,
-        "parcelas_abertas": 0,
-        "valor_parcela": 0.0
-    }
+    return montar_item(
+        arquivo=arquivo,
+        data=data,
+        descricao=descricao_raw,
+        valor=valor,
+        origem="data_valor",
+        linha_original=linha,
+        parcelado=parcelado,
+        parcela_atual=pa,
+        total_parcelas=pt,
+        parcelas_abertas=parcelas_abertas,
+        valor_parcela=vp if vp > 0 else valor,
+        tipo_parcela=tipo,
+    )
 
 
 def extrair_linha_extenso(linha, arquivo):
@@ -186,37 +639,74 @@ def extrair_linha_extenso(linha, arquivo):
 
     dia = m.group("dia").zfill(2)
     ano = m.group("ano")
-    descricao = limpar_descricao(m.group("descricao"))
+    descricao_raw = m.group("descricao")
     valor = converter_valor(m.group("valor"))
 
-    if valor <= 0:
+    pa, pt, vp, tipo = extrair_parcela_linha(descricao_raw)
+    parcelado = pt > 0
+    parcelas_abertas = max(pt - pa, 0) if parcelado else 0
+
+    return montar_item(
+        arquivo=arquivo,
+        data=f"{dia}/{mes}/{ano}",
+        descricao=descricao_raw,
+        valor=valor,
+        origem="data_extenso",
+        linha_original=linha,
+        parcelado=parcelado,
+        parcela_atual=pa,
+        total_parcelas=pt,
+        parcelas_abertas=parcelas_abertas,
+        valor_parcela=vp if vp > 0 else valor,
+        tipo_parcela=tipo,
+    )
+
+
+def extrair_linha_sem_data_com_valor(linha, arquivo):
+    linha_norm = normalizar_texto(linha)
+
+    if linha_bloqueada(linha_norm):
         return None
 
-    if not descricao_valida(descricao):
+    valores = PADRAO_VALOR.findall(linha_norm)
+
+    if not valores:
         return None
 
-    return {
-        "arquivo_fatura": arquivo,
-        "data": f"{dia}/{mes}/{ano}",
-        "descricao_original": descricao,
-        "valor": valor,
-        "origem_extracao": "data_extenso",
-        "parcelado": False,
-        "parcelas_abertas": 0,
-        "valor_parcela": 0.0
-    }
+    valor = converter_valor(valores[-1])
+    descricao_raw = PADRAO_VALOR.sub(" ", linha_norm)
 
+    pa, pt, vp, tipo = extrair_parcela_linha(linha_norm)
+    parcelado = pt > 0
+    parcelas_abertas = max(pt - pa, 0) if parcelado else 0
+
+    # Sem data só entra se houver evidência explícita de parcelamento.
+    if not parcelado:
+        return None
+
+    data = f"01/01/{extrair_ano_arquivo(arquivo)}"
+
+    return montar_item(
+        arquivo=arquivo,
+        data=data,
+        descricao=descricao_raw,
+        valor=valor,
+        origem="sem_data_parcelado",
+        linha_original=linha,
+        parcelado=parcelado,
+        parcela_atual=pa,
+        total_parcelas=pt,
+        parcelas_abertas=parcelas_abertas,
+        valor_parcela=vp if vp > 0 else valor,
+        tipo_parcela=tipo,
+    )
+
+
+# ============================================================
+# EXTRAÇÃO EM BLOCO PRESERVADA
+# ============================================================
 
 def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
-    """
-    Captura bloco universal de fatura:
-    LOJA
-    CIDADE / UF
-    DATA
-    R$ TOTAL
-    Nx de R$ VALOR
-    """
-
     linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
     transacoes = []
 
@@ -234,43 +724,53 @@ def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
             continue
 
         data_m = PADRAO_DATA_CURTA.search(linha_norm)
+
         if data_m:
             data_detectada = data_m.group(0)
+
             if len(data_detectada) == 5:
                 data_detectada = f"{data_detectada}/{extrair_ano_arquivo(arquivo_origem)}"
 
         valores = PADRAO_VALOR.findall(linha_norm)
+
         if valores:
             valor_total = converter_valor(valores[0])
             sem_valor = PADRAO_VALOR.sub(" ", linha_norm)
             sem_valor = limpar_descricao(sem_valor)
+
             if sem_valor and not linha_bloqueada(sem_valor):
                 contexto.append(sem_valor)
 
-        m = PADRAO_NX_DE.search(linha_norm)
-        if m:
-            parcelas_abertas = int(m.group("qtd"))
-            valor_parcela = converter_valor(m.group("valor"))
+        pa, pt, vp, tipo = extrair_parcela_linha(linha_norm)
+
+        if pt > 0 and ("NX" in tipo or tipo in ["NX_DE_VALOR", "EM_NX", "N_PARCELAS", "PADRAO_EXTERNO"]):
+            valor_parcela = vp if vp > 0 else (valor_total or 0.0)
 
             if valor_total is None:
-                valor_total = round(parcelas_abertas * valor_parcela, 2)
+                valor_total = round(pt * valor_parcela, 2)
 
             descricao = limpar_descricao(" ".join(contexto[-4:]))
 
             if not descricao:
                 descricao = "COMPRA PARCELADA"
 
-            if descricao_valida(descricao):
-                transacoes.append({
-                    "arquivo_fatura": arquivo_origem,
-                    "data": data_detectada or f"01/01/{extrair_ano_arquivo(arquivo_origem)}",
-                    "descricao_original": descricao,
-                    "valor": float(valor_total),
-                    "origem_extracao": "parcelamento_bloco",
-                    "parcelado": True,
-                    "parcelas_abertas": int(parcelas_abertas),
-                    "valor_parcela": float(valor_parcela)
-                })
+            item = montar_item(
+                arquivo=arquivo_origem,
+                data=data_detectada or f"01/01/{extrair_ano_arquivo(arquivo_origem)}",
+                descricao=descricao,
+                valor=float(valor_total),
+                origem="parcelamento_bloco",
+                linha_original=" | ".join(contexto[-4:] + [linha]),
+                parcelado=True,
+                parcela_atual=pa,
+                total_parcelas=pt,
+                parcelas_abertas=max(pt - pa, 0),
+                valor_parcela=float(valor_parcela),
+                tipo_parcela=tipo,
+            )
+
+            if item is not None:
+                transacoes.append(item)
 
             contexto = []
             valor_total = None
@@ -284,29 +784,98 @@ def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
     return transacoes
 
 
+# ============================================================
+# EXTRAÇÃO COM BLOCK_READER
+# ============================================================
+
+def extrair_blocos_inteligentes(texto, arquivo_origem=""):
+    if ler_blocos is None:
+        return []
+
+    try:
+        itens = ler_blocos(
+            texto=texto,
+            arquivo_origem=arquivo_origem,
+            ano_padrao=extrair_ano_arquivo(arquivo_origem),
+        )
+    except Exception:
+        return []
+
+    resultados = []
+
+    for item in itens:
+        if not isinstance(item, dict):
+            continue
+
+        valor = float(item.get("valor", 0) or 0)
+        descricao = item.get("descricao_original", "")
+        data = item.get("data", f"01/01/{extrair_ano_arquivo(arquivo_origem)}")
+        parcelado = bool(item.get("parcelado", False))
+        pa = int(item.get("parcela_atual", 0) or 0)
+        pt = int(item.get("total_parcelas", 0) or 0)
+        vp = float(item.get("valor_parcela", 0) or 0)
+
+        if valor <= 0 or not descricao_valida(descricao):
+            continue
+
+        novo = montar_item(
+            arquivo=arquivo_origem,
+            data=data,
+            descricao=descricao,
+            valor=valor,
+            origem="block_reader",
+            linha_original=item.get("linha_original_pdf", ""),
+            parcelado=parcelado,
+            parcela_atual=pa,
+            total_parcelas=pt,
+            parcelas_abertas=max(pt - pa, 0) if parcelado else 0,
+            valor_parcela=vp if vp > 0 else valor,
+            tipo_parcela=item.get("tipo_parcela", ""),
+        )
+
+        if novo is not None:
+            resultados.append(novo)
+
+    return resultados
+
+
+# ============================================================
+# ORQUESTRAÇÃO
+# ============================================================
+
 def extrair_transacoes_texto(texto, arquivo_origem=""):
     transacoes = []
 
+    # 1. Novo leitor inteligente de blocos
     transacoes.extend(
-        extrair_compras_parceladas_em_bloco(
+        extrair_blocos_inteligentes(
             texto=texto,
-            arquivo_origem=arquivo_origem
+            arquivo_origem=arquivo_origem,
         )
     )
 
+    # 2. Leitor antigo de blocos preservado
+    transacoes.extend(
+        extrair_compras_parceladas_em_bloco(
+            texto=texto,
+            arquivo_origem=arquivo_origem,
+        )
+    )
+
+    # 3. Linha a linha tradicional preservado
     linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
 
     for linha in linhas:
         if linha_bloqueada(linha):
             continue
 
-        if PADRAO_NX_DE.search(linha):
-            continue
-
         item = extrair_linha_numerica(linha, arquivo_origem)
 
         if item is None:
             item = extrair_linha_extenso(linha, arquivo_origem)
+
+        if item is None:
+            item = extrair_linha_sem_data_com_valor(linha, arquivo_origem)
 
         if item is not None:
             transacoes.append(item)
@@ -324,7 +893,7 @@ def processar_transacoes(documentos):
         todas.extend(
             extrair_transacoes_texto(
                 texto=texto,
-                arquivo_origem=arquivo
+                arquivo_origem=arquivo,
             )
         )
 
@@ -332,11 +901,20 @@ def processar_transacoes(documentos):
         "arquivo_fatura",
         "data",
         "descricao_original",
+        "descricao_normalizada",
         "valor",
         "origem_extracao",
         "parcelado",
+        "parcela_atual",
+        "total_parcelas",
         "parcelas_abertas",
-        "valor_parcela"
+        "valor_parcela",
+        "tipo_parcela",
+        "linha_original_pdf",
+        "confianca_extracao",
+        "nivel_confianca",
+        "confidence_version",
+        "confidence_motivos",
     ]
 
     df = pd.DataFrame(todas, columns=colunas)
@@ -347,7 +925,7 @@ def processar_transacoes(documentos):
     df["data"] = pd.to_datetime(
         df["data"],
         format="%d/%m/%Y",
-        errors="coerce"
+        errors="coerce",
     )
 
     df = df.dropna(subset=["data"])
@@ -357,11 +935,16 @@ def processar_transacoes(documentos):
     df = df[df["valor"] > 0]
 
     df["descricao_original"] = df["descricao_original"].apply(limpar_descricao)
+    df["descricao_normalizada"] = df["descricao_original"].apply(normalizar_merchant_local)
+
     df = df[df["descricao_original"].apply(descricao_valida)]
 
     df["parcelado"] = df["parcelado"].fillna(False)
+    df["parcela_atual"] = pd.to_numeric(df["parcela_atual"], errors="coerce").fillna(0).astype(int)
+    df["total_parcelas"] = pd.to_numeric(df["total_parcelas"], errors="coerce").fillna(0).astype(int)
     df["parcelas_abertas"] = pd.to_numeric(df["parcelas_abertas"], errors="coerce").fillna(0).astype(int)
     df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce").fillna(0)
+    df["confianca_extracao"] = pd.to_numeric(df["confianca_extracao"], errors="coerce").fillna(0).astype(int)
 
     df = df.drop_duplicates(
         subset=[
@@ -370,8 +953,9 @@ def processar_transacoes(documentos):
             "descricao_original",
             "valor",
             "parcelado",
-            "parcelas_abertas",
-            "valor_parcela"
+            "parcela_atual",
+            "total_parcelas",
+            "valor_parcela",
         ]
     )
 
@@ -384,10 +968,10 @@ def resumo_transacoes(df_transacoes):
     if df_transacoes is None or df_transacoes.empty:
         return {
             "quantidade": 0,
-            "valor_total": 0.0
+            "valor_total": 0.0,
         }
 
     return {
         "quantidade": int(len(df_transacoes)),
-        "valor_total": float(df_transacoes["valor"].sum())
+        "valor_total": float(df_transacoes["valor"].sum()),
     }
