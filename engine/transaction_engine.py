@@ -1,21 +1,13 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão integrada — Fase 2
-#
-# Integra:
-# - patterns.py
-# - parcel_patterns.py
-# - normalizer.py
-# - confidence.py
-# - block_reader.py
-#
-# Preserva:
-# - leitura linha a linha
-# - leitura por data + valor
-# - leitura por data por extenso
-# - leitura de parcelamentos em bloco
-# - compatibilidade com app.py atual
+# Débitos reais + compras parceladas em bloco
+# Versão corrigida — preserva a lógica atual e adiciona:
+# - novos padrões de parcelamento
+# - leitura por block_reader quando disponível
+# - linha_original_pdf
+# - descricao_normalizada
+# - confianca_extracao
 # ============================================================
 
 import re
@@ -24,28 +16,19 @@ import unicodedata
 
 
 # ============================================================
-# IMPORTS MODULARES COM FALLBACK
+# IMPORTS OPCIONAIS
+# Se os novos arquivos ainda não existirem, o motor continua funcionando.
 # ============================================================
 
 try:
-    from engine.patterns import (
-        MESES as MESES_EXTERNOS,
-        BLACKLIST as BLACKLIST_EXTERNA,
-        PADRAO_DATA_CURTA as PADRAO_DATA_CURTA_EXTERNO,
-        PADRAO_DATA_NUMERICA as PADRAO_DATA_VALOR_EXTERNO,
-        PADRAO_DATA_EXTENSO as PADRAO_EXTENSO_VALOR_EXTERNO,
-        PADRAO_VALOR_REAIS as PADRAO_VALOR_EXTERNO,
-        PADRAO_NX_DE as PADRAO_NX_DE_EXTERNO,
-    )
+    from engine.block_reader import ler_blocos
 except Exception:
-    MESES_EXTERNOS = None
-    BLACKLIST_EXTERNA = None
-    PADRAO_DATA_CURTA_EXTERNO = None
-    PADRAO_DATA_VALOR_EXTERNO = None
-    PADRAO_EXTENSO_VALOR_EXTERNO = None
-    PADRAO_VALOR_EXTERNO = None
-    PADRAO_NX_DE_EXTERNO = None
+    ler_blocos = None
 
+try:
+    from engine.confidence import calcular_confianca
+except Exception:
+    calcular_confianca = None
 
 try:
     from engine.normalizer import (
@@ -53,39 +36,19 @@ try:
         limpar_descricao as limpar_descricao_externa,
         converter_valor as converter_valor_externo,
         normalizar_merchant as normalizar_merchant_externo,
-        descricao_valida as descricao_valida_externa,
     )
 except Exception:
     normalizar_texto_externo = None
     limpar_descricao_externa = None
     converter_valor_externo = None
     normalizar_merchant_externo = None
-    descricao_valida_externa = None
-
-
-try:
-    from engine.confidence import calcular_confianca
-except Exception:
-    calcular_confianca = None
-
-
-try:
-    from engine.block_reader import ler_blocos
-except Exception:
-    ler_blocos = None
-
-
-try:
-    from engine.parcel_patterns import TODOS_PADROES_PARCELAMENTO
-except Exception:
-    TODOS_PADROES_PARCELAMENTO = []
 
 
 # ============================================================
-# CONFIGURAÇÕES BASE
+# CONFIG
 # ============================================================
 
-MESES_FALLBACK = {
+MESES = {
     "jan": "01", "janeiro": "01",
     "fev": "02", "fevereiro": "02",
     "mar": "03", "marco": "03", "março": "03",
@@ -100,7 +63,7 @@ MESES_FALLBACK = {
     "dez": "12", "dezembro": "12",
 }
 
-BLACKLIST_FALLBACK = [
+BLACKLIST = [
     "DESPESAS DA FATURA", "DESPESAS DO MES", "DESPESAS DO MÊS",
     "PAGAMENTO TOTAL", "PAGAMENTO MINIMO", "PAGAMENTO MÍNIMO",
     "PAGAMENTO ON LINE", "PAGAMENTO ONLINE", "PAGAMENTO -", "PAGAMENTO +",
@@ -111,75 +74,70 @@ BLACKLIST_FALLBACK = [
     "TOTAL DA FATURA", "VALOR TOTAL DA FATURA", "TOTAL A PAGAR",
     "LIMITE", "VENCIMENTO", "FECHAMENTO", "MELHOR DIA",
     "PAGINA", "PÁGINA", "RESUMO", "FATURA",
+    "VILSON JOSE PEREIRA PINTO", "5364", "4593",
     "SALDO", "CREDITO", "CRÉDITO", "ESTORNO",
 ]
 
-MESES = MESES_EXTERNOS if MESES_EXTERNOS else MESES_FALLBACK
-BLACKLIST = BLACKLIST_EXTERNA if BLACKLIST_EXTERNA else BLACKLIST_FALLBACK
-
 
 # ============================================================
-# PADRÕES FALLBACK
+# PADRÕES
 # ============================================================
 
-PADRAO_DATA_VALOR = PADRAO_DATA_VALOR_EXTERNO or re.compile(
+PADRAO_DATA_VALOR = re.compile(
     r"(?P<data>\d{2}/\d{2}(?:/\d{4})?)\s+"
     r"(?P<descricao>.+?)\s+"
     r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})$",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
-PADRAO_EXTENSO_VALOR = PADRAO_EXTENSO_VALOR_EXTERNO or re.compile(
+PADRAO_EXTENSO_VALOR = re.compile(
     r"(?P<dia>\d{1,2})\s+DE\s+(?P<mes>[A-ZÇ]+)\.?\s+(?P<ano>\d{4})\s+"
     r"(?P<descricao>.+?)\s+"
     r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2})$",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
-PADRAO_VALOR = PADRAO_VALOR_EXTERNO or re.compile(
+PADRAO_VALOR = re.compile(
     r"R?\$?\s*([\d]{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
-PADRAO_NX_DE = PADRAO_NX_DE_EXTERNO or re.compile(
+PADRAO_NX_DE = re.compile(
     r"(?P<qtd>\d{1,2})\s*X\s*(?:DE|POR)?\s*R?\$?\s*(?P<valor>[\d\.]+,\d{2})",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
-PADRAO_DATA_CURTA = PADRAO_DATA_CURTA_EXTERNO or re.compile(
-    r"\b\d{2}/\d{2}(?:/\d{4})?\b",
-    re.IGNORECASE,
-)
+PADRAO_DATA_CURTA = re.compile(r"\b\d{2}/\d{2}(?:/\d{4})?\b")
 
 PADRAO_PARC_EXPLICITA = re.compile(
     r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*"
     r"(?P<atual>\d{1,2})\s*(?:/|DE)\s*(?P<total>\d{1,2})\b",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 PADRAO_PARC_BARRA = re.compile(
     r"\b(?P<atual>\d{1,2})\s*/\s*(?P<total>\d{1,2})\b",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 PADRAO_PARC_DE = re.compile(
     r"\b(?P<atual>\d{1,2})\s*DE\s*(?P<total>\d{1,2})\b",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 PADRAO_NX = re.compile(
     r"\b(?P<total>\d{1,2})\s*X\b",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 PADRAO_EM_NX = re.compile(
     r"\bEM\s*(?P<total>\d{1,2})\s*X\b",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 PADRAO_N_PARCELAS = re.compile(
     r"\b(?P<total>\d{1,2})\s*(?:PARCELAS|PRESTACOES|PRESTAÇÕES)\b",
-    re.IGNORECASE,
+    re.IGNORECASE
 )
 
 
@@ -209,23 +167,23 @@ def limpar_descricao(descricao):
         except Exception:
             pass
 
-    texto = str(descricao or "")
-    texto = re.sub(r"R?\$?\s*[\d\.]+,\d{2}", " ", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\d{1,2}\s*X\s*(?:DE|POR)?\s*R?\$?\s*[\d\.]+,\d{2}", " ", texto, flags=re.IGNORECASE)
-    texto = re.sub(
+    descricao = str(descricao or "")
+    descricao = re.sub(r"R?\$?\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\d{1,2}\s*X\s*(?:DE|POR)?\s*R?\$?\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(
         r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*\d{1,2}\s*(?:/|DE)\s*\d{1,2}\b",
         " ",
-        texto,
-        flags=re.IGNORECASE,
+        descricao,
+        flags=re.IGNORECASE
     )
-    texto = re.sub(r"\b\d{1,2}\s*/\s*\d{1,2}\b", " ", texto)
-    texto = re.sub(r"\b\d{1,2}\s*DE\s*\d{1,2}\b", " ", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\b\d{1,2}\s*X\b", " ", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", texto)
-    texto = re.sub(r"R\$", "", texto, flags=re.IGNORECASE)
-    texto = re.sub(r"[*]+", " ", texto)
-    texto = re.sub(r"\s+", " ", texto)
-    return texto.strip(" -")
+    descricao = re.sub(r"\b\d{1,2}\s*/\s*\d{1,2}\b", " ", descricao)
+    descricao = re.sub(r"\b\d{1,2}\s*DE\s*\d{1,2}\b", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\b\d{1,2}\s*X\b", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", descricao)
+    descricao = re.sub(r"R\$", "", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"[*]+", " ", descricao)
+    descricao = re.sub(r"\s+", " ", descricao)
+    return descricao.strip(" -")
 
 
 def converter_valor(valor):
@@ -286,7 +244,7 @@ def extrair_ano_arquivo(nome_arquivo):
 
 
 # ============================================================
-# VALIDAÇÃO
+# VALIDAÇÕES
 # ============================================================
 
 def linha_bloqueada(linha):
@@ -321,12 +279,6 @@ def linha_bloqueada(linha):
 
 
 def descricao_valida(descricao):
-    if descricao_valida_externa:
-        try:
-            return descricao_valida_externa(descricao)
-        except Exception:
-            pass
-
     texto = normalizar_texto(descricao)
 
     if linha_bloqueada(texto):
@@ -427,99 +379,59 @@ def extrair_parcela_linha(linha):
     texto = normalizar_texto(linha)
 
     m = PADRAO_PARC_EXPLICITA.search(texto)
-
     if m:
         atual = int(m.group("atual"))
         total = int(m.group("total"))
-
         if 1 <= atual <= total <= 60:
             return atual, total, 0.0, "PARCELA_EXPLICITA"
 
     m = PADRAO_NX_DE.search(texto)
-
     if m:
         total = int(m.group("qtd"))
         valor_parcela = converter_valor(m.group("valor"))
-
         if 1 <= total <= 60:
             return 0, total, valor_parcela, "NX_DE_VALOR"
 
     m = PADRAO_EM_NX.search(texto)
-
     if m:
         total = int(m.group("total"))
-
         if 1 <= total <= 60:
             return 0, total, 0.0, "EM_NX"
 
     m = PADRAO_NX.search(texto)
-
     if m:
         total = int(m.group("total"))
-
         if 1 <= total <= 60:
             return 0, total, 0.0, "NX"
 
     m = PADRAO_N_PARCELAS.search(texto)
-
     if m:
         total = int(m.group("total"))
-
         if 1 <= total <= 60:
             return 0, total, 0.0, "N_PARCELAS"
 
-    # Uso dos padrões externos como reforço.
-    for padrao in TODOS_PADROES_PARCELAMENTO:
-        try:
-            m = padrao.search(texto)
-
-            if not m:
-                continue
-
-            gd = m.groupdict()
-
-            atual = int(gd.get("atual") or 0)
-            total = int(gd.get("total") or 0)
-
-            if total > 0 and 0 <= atual <= total <= 60:
-                return atual, total, 0.0, "PADRAO_EXTERNO"
-
-        except Exception:
-            continue
-
-    # 01/06 só é aceito como parcela quando existe contexto.
-    # Isso evita confundir data com parcelamento.
     tem_contexto = any(p in texto for p in [
         "PARC", "PARCELA", "PARCELADO", "COMPRA", "SEM JUROS", "LOJA",
-        "MAGAZINE", "CASAS", "SHOP", "STORE", "MERCADO PAGO", "MP ",
-        "PARCELAS", "PRESTACOES", "PRESTAÇÕES"
+        "MAGAZINE", "CASAS", "SHOP", "STORE", "MERCADO PAGO", "MP "
     ])
 
     if tem_contexto:
         m = PADRAO_PARC_BARRA.search(texto)
-
         if m:
             atual = int(m.group("atual"))
             total = int(m.group("total"))
-
             if 1 <= atual <= total <= 60:
                 return atual, total, 0.0, "BARRA_CONTEXTO"
 
         m = PADRAO_PARC_DE.search(texto)
-
         if m:
             atual = int(m.group("atual"))
             total = int(m.group("total"))
-
             if 1 <= atual <= total <= 60:
                 return atual, total, 0.0, "DE_CONTEXTO"
 
     return 0, 0, 0.0, ""
 
-
-# ============================================================
-# MONTAGEM PADRÃO
-# ============================================================
 
 def montar_item(
     arquivo,
@@ -680,7 +592,8 @@ def extrair_linha_sem_data_com_valor(linha, arquivo):
     parcelado = pt > 0
     parcelas_abertas = max(pt - pa, 0) if parcelado else 0
 
-    # Sem data só entra se houver evidência explícita de parcelamento.
+    # Linha sem data só entra como transação se houver evidência de parcelamento.
+    # Isso evita transformar textos soltos e totais em compras.
     if not parcelado:
         return None
 
@@ -703,7 +616,7 @@ def extrair_linha_sem_data_com_valor(linha, arquivo):
 
 
 # ============================================================
-# EXTRAÇÃO EM BLOCO PRESERVADA
+# EXTRAÇÃO EM BLOCO ANTIGA PRESERVADA
 # ============================================================
 
 def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
@@ -727,7 +640,6 @@ def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
 
         if data_m:
             data_detectada = data_m.group(0)
-
             if len(data_detectada) == 5:
                 data_detectada = f"{data_detectada}/{extrair_ano_arquivo(arquivo_origem)}"
 
@@ -743,8 +655,11 @@ def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
 
         pa, pt, vp, tipo = extrair_parcela_linha(linha_norm)
 
-        if pt > 0 and ("NX" in tipo or tipo in ["NX_DE_VALOR", "EM_NX", "N_PARCELAS", "PADRAO_EXTERNO"]):
-            valor_parcela = vp if vp > 0 else (valor_total or 0.0)
+        if pt > 0 and ("NX" in tipo or tipo in ["NX_DE_VALOR", "EM_NX", "N_PARCELAS"]):
+            if vp > 0:
+                valor_parcela = vp
+            else:
+                valor_parcela = valor_total or 0.0
 
             if valor_total is None:
                 valor_total = round(pt * valor_parcela, 2)
@@ -785,7 +700,7 @@ def extrair_compras_parceladas_em_bloco(texto, arquivo_origem=""):
 
 
 # ============================================================
-# EXTRAÇÃO COM BLOCK_READER
+# EXTRAÇÃO COM BLOCK_READER NOVO
 # ============================================================
 
 def extrair_blocos_inteligentes(texto, arquivo_origem=""):
@@ -796,7 +711,7 @@ def extrair_blocos_inteligentes(texto, arquivo_origem=""):
         itens = ler_blocos(
             texto=texto,
             arquivo_origem=arquivo_origem,
-            ano_padrao=extrair_ano_arquivo(arquivo_origem),
+            ano_padrao=extrair_ano_arquivo(arquivo_origem)
         )
     except Exception:
         return []
@@ -850,15 +765,15 @@ def extrair_transacoes_texto(texto, arquivo_origem=""):
     transacoes.extend(
         extrair_blocos_inteligentes(
             texto=texto,
-            arquivo_origem=arquivo_origem,
+            arquivo_origem=arquivo_origem
         )
     )
 
-    # 2. Leitor antigo de blocos preservado
+    # 2. Leitor de blocos antigo preservado
     transacoes.extend(
         extrair_compras_parceladas_em_bloco(
             texto=texto,
-            arquivo_origem=arquivo_origem,
+            arquivo_origem=arquivo_origem
         )
     )
 
@@ -893,7 +808,7 @@ def processar_transacoes(documentos):
         todas.extend(
             extrair_transacoes_texto(
                 texto=texto,
-                arquivo_origem=arquivo,
+                arquivo_origem=arquivo
             )
         )
 
@@ -925,7 +840,7 @@ def processar_transacoes(documentos):
     df["data"] = pd.to_datetime(
         df["data"],
         format="%d/%m/%Y",
-        errors="coerce",
+        errors="coerce"
     )
 
     df = df.dropna(subset=["data"])
@@ -968,10 +883,10 @@ def resumo_transacoes(df_transacoes):
     if df_transacoes is None or df_transacoes.empty:
         return {
             "quantidade": 0,
-            "valor_total": 0.0,
+            "valor_total": 0.0
         }
 
     return {
         "quantidade": int(len(df_transacoes)),
-        "valor_total": float(df_transacoes["valor"].sum()),
+        "valor_total": float(df_transacoes["valor"].sum())
     }
