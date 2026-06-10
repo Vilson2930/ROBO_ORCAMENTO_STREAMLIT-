@@ -2,7 +2,7 @@
 # block_reader.py
 # ORÇAMENTO INTELIGENTE
 # Leitor inteligente de blocos de faturas brasileiras
-# Versão corrigida — evita confundir data com parcela
+# Versão corrigida — anti-agregação de tabela
 # ============================================================
 
 import re
@@ -71,27 +71,53 @@ PADRAO_N_PARCELAS = re.compile(
 )
 
 
-def _extrair_valor(linha):
-    m = PADRAO_VALOR.search(str(linha or ""))
+TERMOS_CABECALHO = [
+    "DATA DESCRICAO VALOR",
+    "DATA DESCRIÇÃO VALOR",
+    "DATA | DESCRICAO | VALOR",
+    "DATA | DESCRIÇÃO | VALOR",
+    "DESCRICAO VALOR",
+    "DESCRIÇÃO VALOR",
+]
 
-    if not m:
-        return None
+TERMOS_BLOQUEADOS = [
+    "PAGAMENTO",
+    "PIX",
+    "BOLETO",
+    "ESTORNO",
+    "CREDITO",
+    "CRÉDITO",
+    "TOTAL DA FATURA",
+    "PAGAMENTO TOTAL",
+    "PAGAMENTO MINIMO",
+    "PAGAMENTO MÍNIMO",
+    "LIMITE",
+    "VENCIMENTO",
+    "ENCARGOS",
+    "JUROS",
+    "IOF",
+    "ROTATIVO",
+]
 
-    return converter_valor(m.group(1))
 
+def _linha_bloqueada(linha):
+    texto = normalizar_texto(linha)
 
-def _extrair_data(linha, ano_padrao="2026"):
-    m = PADRAO_DATA.search(str(linha or ""))
+    if not texto:
+        return True
 
-    if not m:
-        return None
+    for termo in TERMOS_CABECALHO:
+        if normalizar_texto(termo) in texto:
+            return True
 
-    data = m.group("data")
+    for termo in TERMOS_BLOQUEADOS:
+        if normalizar_texto(termo) in texto:
+            return True
 
-    if len(data) == 5:
-        data = f"{data}/{ano_padrao}"
+    if len(texto) > 180:
+        return True
 
-    return data
+    return False
 
 
 def _tem_contexto_parcela(texto):
@@ -106,10 +132,38 @@ def _tem_contexto_parcela(texto):
         "PARCELAS",
         "PRESTACOES",
         "PRESTAÇÕES",
-        "EM ",
+        " EM ",
     ]
 
     return any(t in texto for t in termos)
+
+
+def _extrair_valor(linha):
+    m = PADRAO_VALOR.search(str(linha or ""))
+
+    if not m:
+        return None
+
+    valor = converter_valor(m.group(1))
+
+    if valor <= 0:
+        return None
+
+    return valor
+
+
+def _extrair_data(linha, ano_padrao="2026"):
+    m = PADRAO_DATA.search(str(linha or ""))
+
+    if not m:
+        return None
+
+    data = m.group("data")
+
+    if len(data) == 5:
+        data = f"{data}/{ano_padrao}"
+
+    return data
 
 
 def _extrair_parcela(linha):
@@ -157,9 +211,8 @@ def _extrair_parcela(linha):
         if 1 <= total <= 60:
             return 0, total, None, "N_PARCELAS"
 
-    # CORREÇÃO IMPORTANTE:
-    # 01/06 só é parcela se existir contexto explícito.
-    # Sem isso, é tratado como data.
+    # Formato 01/06 só é parcela se houver contexto explícito.
+    # Sem contexto, é tratado como data.
     if _tem_contexto_parcela(texto):
         m = PADRAO_PARCELA_BARRA.search(texto)
 
@@ -177,8 +230,21 @@ def _finalizar_bloco(bloco, arquivo_origem="", ano_padrao="2026"):
     if not bloco:
         return None
 
+    bloco = [l for l in bloco if not _linha_bloqueada(l)]
+
+    if not bloco:
+        return None
+
     linha_original = " | ".join(bloco)
     texto_bloco = normalizar_texto(linha_original)
+
+    # Trava anti-agregação:
+    # Se o bloco tem várias datas e vários valores, provavelmente juntou várias compras.
+    valores_encontrados = PADRAO_VALOR.findall(texto_bloco)
+    datas_encontradas = PADRAO_DATA.findall(texto_bloco)
+
+    if len(valores_encontrados) >= 2 and len(datas_encontradas) >= 2:
+        return None
 
     valor = None
     data = None
@@ -222,6 +288,13 @@ def _finalizar_bloco(bloco, arquivo_origem="", ano_padrao="2026"):
     if parcelado and valor_parcela <= 0:
         valor_parcela = valor
 
+    # Travas de segurança.
+    if valor > 100000:
+        return None
+
+    if valor_parcela and valor_parcela > 10000:
+        return None
+
     confianca = calcular_confianca(
         linha_original=linha_original,
         descricao=descricao,
@@ -259,35 +332,28 @@ def ler_blocos(texto, arquivo_origem="", ano_padrao="2026"):
     linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
 
     resultados = []
-    bloco = []
+    contexto = []
 
     for linha in linhas:
         linha_norm = normalizar_texto(linha)
 
         if linha_norm.startswith("--- PAGINA"):
-            item = _finalizar_bloco(
-                bloco,
-                arquivo_origem=arquivo_origem,
-                ano_padrao=ano_padrao
-            )
+            contexto = []
+            continue
 
-            if item:
-                resultados.append(item)
-
-            bloco = []
+        if _linha_bloqueada(linha_norm):
+            contexto = []
             continue
 
         tem_valor = PADRAO_VALOR.search(linha_norm) is not None
-        tem_data = PADRAO_DATA.search(linha_norm) is not None
-
         pa, pt, vp, tipo = _extrair_parcela(linha_norm)
         tem_parcela = pt is not None
 
-        bloco.append(linha)
-
-        if len(bloco) >= 6:
+        # Linha completa com valor.
+        # Não acumula 6 linhas. Isso era o bug que juntava compras diferentes.
+        if tem_valor:
             item = _finalizar_bloco(
-                bloco,
+                [linha],
                 arquivo_origem=arquivo_origem,
                 ano_padrao=ano_padrao
             )
@@ -295,11 +361,17 @@ def ler_blocos(texto, arquivo_origem="", ano_padrao="2026"):
             if item:
                 resultados.append(item)
 
-            bloco = []
+            contexto = []
+            continue
 
-        elif tem_valor and (tem_parcela or tem_data):
+        # Linha sem valor: guarda apenas contexto curto.
+        contexto.append(linha)
+        contexto = contexto[-2:]
+
+        # Linha com parcela explícita sem valor: usa contexto curto.
+        if tem_parcela and contexto:
             item = _finalizar_bloco(
-                bloco,
+                contexto,
                 arquivo_origem=arquivo_origem,
                 ano_padrao=ano_padrao
             )
@@ -307,15 +379,6 @@ def ler_blocos(texto, arquivo_origem="", ano_padrao="2026"):
             if item:
                 resultados.append(item)
 
-            bloco = []
-
-    item = _finalizar_bloco(
-        bloco,
-        arquivo_origem=arquivo_origem,
-        ano_padrao=ano_padrao
-    )
-
-    if item:
-        resultados.append(item)
+            contexto = []
 
     return resultados
