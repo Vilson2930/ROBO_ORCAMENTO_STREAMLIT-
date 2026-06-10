@@ -1,19 +1,7 @@
 # ============================================================
-# parcelamento_engine.py
+# PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — leitura ampla + saneamento institucional
-#
-# Mantém o ganho:
-# - continua lendo várias faturas
-# - continua aceitando TX_ENGINE e fallback por texto/PDF
-#
-# Corrige:
-# - 12255 -> 122,55 quando a evidência mostra R$ 122,55
-# - 16995 -> 169,95 quando a evidência mostra R$ 169,95
-# - remove texto administrativo do banco
-# - remove duplicidade entre TX_ENGINE e DOC_ENGINE
-# - consolida a mesma compra em uma única posição
-# - calcula valor restante apenas das parcelas abertas
+# Versão determinística — parcela explícita vira cálculo exato
 # ============================================================
 
 import re
@@ -21,14 +9,8 @@ import pandas as pd
 import unicodedata
 
 
-TOLERANCIA_VALOR = 0.20
-MAX_TOTAL_PARCELAS = 60
-MAX_VALOR_PARCELA = 30000.0
+TOLERANCIA_VALOR = 0.15
 
-
-# ============================================================
-# NORMALIZAÇÃO
-# ============================================================
 
 def normalizar_texto(texto):
     texto = str(texto or "")
@@ -40,179 +22,50 @@ def normalizar_texto(texto):
 
 
 def converter_valor(valor):
-    """
-    Conversor seguro.
-    Não transforma float 169.95 em 16995.
-    """
-    if valor is None:
-        return 0.0
-
-    if isinstance(valor, (int, float)):
-        try:
-            return float(valor)
-        except Exception:
-            return 0.0
-
-    texto = str(valor).strip()
-
-    if not texto:
-        return 0.0
-
-    texto = texto.replace("R$", "").replace(" ", "")
-
     try:
-        if "," in texto:
-            texto = texto.replace(".", "").replace(",", ".")
-            return float(texto)
-
-        return float(texto)
-
+        return float(str(valor).replace(".", "").replace(",", "."))
     except Exception:
         return 0.0
 
-
-# ============================================================
-# PADRÕES
-# ============================================================
 
 PADRAO_VALOR = re.compile(
     r"R?\$?\s*([\d]{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})",
     re.IGNORECASE
 )
 
+PADRAO_NX_DE = re.compile(
+    r"(?P<qtd>\d{1,2})\s*[Xx]\s*(?:DE|POR)?\s*R?\$?\s*(?P<valor>[\d]{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})",
+    re.IGNORECASE
+)
+
 PADRAO_PARC_EXPLICITA = re.compile(
-    r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*"
+    r"\b(?:PARC|PARCELA|PARCELADO|COMPRA PARCELADA)\.?\s*"
     r"(?P<atual>\d{1,2})\s*(?:/|DE)\s*(?P<total>\d{1,2})\b",
     re.IGNORECASE
 )
 
-PADRAO_NX_DE = re.compile(
-    r"\b(?P<qtd>\d{1,2})\s*[Xx]\s*(?:DE|POR)?\s*R?\$?\s*(?P<valor>[\d]{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})",
-    re.IGNORECASE
-)
-
-PADRAO_NX = re.compile(
-    r"\b(?P<total>\d{1,2})\s*X\b",
-    re.IGNORECASE
-)
-
-PADRAO_EM_NX = re.compile(
-    r"\bEM\s*(?P<total>\d{1,2})\s*X\b",
-    re.IGNORECASE
-)
-
-PADRAO_N_PARCELAS = re.compile(
-    r"\b(?P<total>\d{1,2})\s*(?:PARCELAS|PRESTACOES|PRESTAÇÕES)\b",
-    re.IGNORECASE
-)
-
-PADRAO_DATA_NUMERICA = re.compile(r"\b\d{2}/\d{2}(?:/\d{4})?\b")
-
-PADRAO_DATA_EXTENSO = re.compile(
-    r"\b\d{1,2}\s+DE\s+[A-ZÇ]{3,12}\.?\s+\d{4}\b",
-    re.IGNORECASE
-)
-
-
-TERMOS_ADMINISTRATIVOS = [
-    "PAGAMENTO",
-    "PIX",
-    "BOLETO",
-    "ESTORNO",
-    "CREDITO",
-    "CRÉDITO",
-    "JUROS",
-    "IOF",
-    "ENCARGOS",
-    "ROTATIVO",
-    "TOTAL DA FATURA",
-    "VALOR TOTAL DA FATURA",
-    "DESPESAS DA FATURA",
-    "LIMITE",
-    "VENCIMENTO",
-    "PAGAMENTO MINIMO",
-    "PAGAMENTO MÍNIMO",
-    "PAGAMENTO TOTAL",
-    "SALDO",
-    "CET",
-    "PARCELAMENTO AUTOMATICO",
-    "PARCELAMENTO AUTOMÁTICO",
-    "PARCELAMENTO E REALIZADO AUTOMATICAMENTE",
-    "PARCELAMENTO É REALIZADO AUTOMATICAMENTE",
-    "CASO ISTO OCORRA",
-    "APLICACAO DE JUROS",
-    "APLICAÇÃO DE JUROS",
-    "JUROS REMUNERATORIOS",
-    "JUROS REMUNERATÓRIOS",
-    "CANCELANDO O AGENDAMENTO",
-    "DESATIVAR O DEBITO AUTOMATICO",
-    "DESATIVAR O DÉBITO AUTOMÁTICO",
+TERMOS_BLOQUEADOS = [
+    "PAGAMENTO", "PIX", "BOLETO", "ESTORNO", "CREDITO", "CRÉDITO",
+    "JUROS", "IOF", "ENCARGOS", "ROTATIVO", "TOTAL DA FATURA",
+    "DESPESAS DA FATURA", "LIMITE", "VENCIMENTO", "PAGAMENTO MINIMO",
+    "PAGAMENTO MÍNIMO", "PAGAMENTO TOTAL", "SALDO", "CET"
 ]
 
 
-# ============================================================
-# UTILITÁRIOS
-# ============================================================
-
-def contem_admin(texto):
+def contem_bloqueado(texto):
     texto = normalizar_texto(texto)
-    return any(normalizar_texto(t) in texto for t in TERMOS_ADMINISTRATIVOS)
-
-
-def extrair_valor_da_evidencia(texto):
-    valores = [converter_valor(v) for v in PADRAO_VALOR.findall(str(texto or ""))]
-    valores = [v for v in valores if v > 0]
-
-    if not valores:
-        return 0.0
-
-    return valores[-1]
-
-
-def corrigir_valor(valor_atual, evidencia=""):
-    """
-    Prioridade:
-    1. valor escrito na evidência original: R$ 122,55
-    2. valor já numérico correto
-    3. ajuste defensivo de inteiro inflado
-    """
-    valor_evidencia = extrair_valor_da_evidencia(evidencia)
-
-    if valor_evidencia > 0:
-        return round(valor_evidencia, 2)
-
-    valor = converter_valor(valor_atual)
-
-    if valor <= 0:
-        return 0.0
-
-    if valor >= 1000 and float(valor).is_integer():
-        return round(valor / 100, 2)
-
-    if 100 <= valor < 1000 and float(valor).is_integer():
-        return round(valor / 10, 2)
-
-    return round(valor, 2)
+    return any(normalizar_texto(t) in texto for t in TERMOS_BLOQUEADOS)
 
 
 def limpar_compra(texto):
     texto = normalizar_texto(texto)
-
-    texto = PADRAO_DATA_EXTENSO.sub(" ", texto)
-    texto = PADRAO_DATA_NUMERICA.sub(" ", texto)
     texto = PADRAO_NX_DE.sub(" ", texto)
     texto = PADRAO_PARC_EXPLICITA.sub(" ", texto)
-    texto = PADRAO_NX.sub(" ", texto)
-    texto = PADRAO_EM_NX.sub(" ", texto)
-    texto = PADRAO_N_PARCELAS.sub(" ", texto)
     texto = PADRAO_VALOR.sub(" ", texto)
-
-    texto = texto.replace("R$", " ")
-    texto = re.sub(r"[*|]+", " ", texto)
+    texto = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", texto)
+    texto = re.sub(r"[*]+", " ", texto)
     texto = re.sub(r"\(\s*\)", " ", texto)
-    texto = re.sub(r"[-–—]+", " ", texto)
     texto = re.sub(r"\s+", " ", texto)
-
     return texto.strip(" -")
 
 
@@ -225,10 +78,7 @@ def compra_valida(compra):
     if len(compra) < 3:
         return False
 
-    if len(compra) > 100:
-        return False
-
-    if contem_admin(compra):
+    if contem_bloqueado(compra):
         return False
 
     if not re.search(r"[A-Z]", compra):
@@ -237,35 +87,8 @@ def compra_valida(compra):
     return True
 
 
-def chave_compra(compra):
-    c = limpar_compra(compra)
-    c = normalizar_texto(c)
-    c = re.sub(r"[^A-Z0-9 ]", " ", c)
-    c = re.sub(r"\s+", " ", c).strip()
-
-    substituicoes_genericas = {
-        "MERC PAGO": "MERCADO PAGO",
-        "MERCPAGO": "MERCADO PAGO",
-        "MERCADOPAGO": "MERCADO PAGO",
-        "MP ": "MERCADO PAGO ",
-        "PAG SEGURO": "PAGSEGURO",
-        "GET NET": "GETNET",
-        "SAFRA PAY": "SAFRAPAY",
-        "ADIQPLU": "ADIQ",
-        "ADIQPAY": "ADIQ",
-        "BLU INSTITUICAO DE PAG": "BLU",
-        "BLU INSTITUICAO": "BLU",
-    }
-
-    for antigo, novo in substituicoes_genericas.items():
-        c = c.replace(antigo, novo)
-
-    return re.sub(r"\s+", " ", c).strip()
-
-
 def encontrar_coluna_descricao(df):
     for col in [
-        "descricao_normalizada",
         "descricao_original",
         "merchant",
         "descricao",
@@ -284,355 +107,262 @@ def encontrar_coluna_descricao(df):
     return None
 
 
-# ============================================================
-# EXTRAÇÃO DE PARCELA EM TEXTO
-# ============================================================
+def encontrar_coluna_valor(df):
+    for col in ["valor", "valor_total", "total", "amount", "gasto"]:
+        if col in df.columns:
+            return col
 
-def extrair_parcela_texto(texto):
-    texto = normalizar_texto(texto)
+    numericas = df.select_dtypes(include="number").columns.tolist()
+    return numericas[0] if numericas else None
 
-    m = PADRAO_PARC_EXPLICITA.search(texto)
-    if m:
-        atual = int(m.group("atual"))
-        total = int(m.group("total"))
-
-        if 1 <= atual <= total <= MAX_TOTAL_PARCELAS:
-            return atual, total, 0.0, "PARCELA_EXPLICITA"
-
-    m = PADRAO_NX_DE.search(texto)
-    if m:
-        total = int(m.group("qtd"))
-        valor_parcela = converter_valor(m.group("valor"))
-
-        if 1 <= total <= MAX_TOTAL_PARCELAS and valor_parcela > 0:
-            return 0, total, valor_parcela, "NX_DE_VALOR"
-
-    m = PADRAO_EM_NX.search(texto)
-    if m:
-        total = int(m.group("total"))
-
-        if 1 <= total <= MAX_TOTAL_PARCELAS:
-            return 0, total, 0.0, "EM_NX"
-
-    m = PADRAO_NX.search(texto)
-    if m:
-        total = int(m.group("total"))
-
-        if 1 <= total <= MAX_TOTAL_PARCELAS:
-            return 0, total, 0.0, "NX"
-
-    if not contem_admin(texto):
-        m = PADRAO_N_PARCELAS.search(texto)
-        if m:
-            total = int(m.group("total"))
-
-            if 1 <= total <= MAX_TOTAL_PARCELAS:
-                return 0, total, 0.0, "N_PARCELAS"
-
-    return 0, 0, 0.0, ""
-
-
-# ============================================================
-# EXTRAÇÃO A PARTIR DO TRANSACTION ENGINE
-# ============================================================
-
-def extrair_parcelamentos_transacoes(df_base):
-    if df_base is None or df_base.empty:
-        return []
-
-    registros = []
-    temp = df_base.copy()
-
-    coluna_desc = encontrar_coluna_descricao(temp)
-
-    if coluna_desc is None:
-        return []
-
-    for _, linha in temp.iterrows():
-        descricao = str(linha.get(coluna_desc, ""))
-        descricao_original = str(linha.get("descricao_original", descricao))
-        linha_original_pdf = str(linha.get("linha_original_pdf", descricao_original))
-        evidencia = linha_original_pdf or descricao_original or descricao
-
-        if contem_admin(evidencia):
-            continue
-
-        categoria = linha.get("categoria", "Outros")
-        arquivo = linha.get("arquivo_fatura", "")
-
-        parcelado = bool(linha.get("parcelado", False))
-
-        parcela_atual = int(pd.to_numeric(linha.get("parcela_atual", 0), errors="coerce") or 0)
-        total_parcelas = int(pd.to_numeric(linha.get("total_parcelas", 0), errors="coerce") or 0)
-
-        tipo_parcela = str(linha.get("tipo_parcela", ""))
-        confianca = int(pd.to_numeric(linha.get("confianca_extracao", 0), errors="coerce") or 0)
-
-        valor_lancamento = linha.get("valor", 0)
-        valor_parcela_col = linha.get("valor_parcela", 0)
-
-        if parcelado and total_parcelas > 0:
-            if parcela_atual < 0 or parcela_atual > total_parcelas:
-                continue
-
-            if total_parcelas > MAX_TOTAL_PARCELAS:
-                continue
-
-            valor_parcela = corrigir_valor(valor_parcela_col, evidencia)
-
-            if valor_parcela <= 0:
-                valor_parcela = corrigir_valor(valor_lancamento, evidencia)
-
-            if valor_parcela <= 0 or valor_parcela > MAX_VALOR_PARCELA:
-                continue
-
-            compra = limpar_compra(descricao)
-
-            if not compra_valida(compra):
-                compra = limpar_compra(descricao_original)
-
-            if not compra_valida(compra):
-                compra = limpar_compra(evidencia)
-
-            if not compra_valida(compra):
-                continue
-
-            registros.append({
-                "arquivo_fatura": arquivo,
-                "compra": compra,
-                "compra_key": chave_compra(compra),
-                "categoria": categoria,
-                "ultima_parcela": parcela_atual,
-                "total_parcelas": total_parcelas,
-                "valor_parcela": valor_parcela,
-                "descricao_detectada": evidencia,
-                "tipo_detectado": f"TX_ENGINE_{tipo_parcela or 'PARCELADO'}",
-                "confianca_extracao": confianca,
-                "prioridade_origem": 2,
-            })
-
-            continue
-
-        # Fallback interno por texto já existente no DataFrame
-        texto_busca = " ".join([descricao, descricao_original, linha_original_pdf])
-
-        if contem_admin(texto_busca):
-            continue
-
-        atual, total, valor_detectado, tipo = extrair_parcela_texto(texto_busca)
-
-        if total <= 0:
-            continue
-
-        valor_parcela = valor_detectado if valor_detectado > 0 else corrigir_valor(valor_lancamento, texto_busca)
-
-        if valor_parcela <= 0 or valor_parcela > MAX_VALOR_PARCELA:
-            continue
-
-        compra = limpar_compra(texto_busca)
-
-        if not compra_valida(compra):
-            continue
-
-        registros.append({
-            "arquivo_fatura": arquivo,
-            "compra": compra,
-            "compra_key": chave_compra(compra),
-            "categoria": categoria,
-            "ultima_parcela": atual,
-            "total_parcelas": total,
-            "valor_parcela": valor_parcela,
-            "descricao_detectada": evidencia,
-            "tipo_detectado": f"DF_{tipo}",
-            "confianca_extracao": confianca,
-            "prioridade_origem": 1,
-        })
-
-    return registros
-
-
-# ============================================================
-# FALLBACK POR DOCUMENTO — CONSERVADOR, MAS MANTIDO
-# ============================================================
 
 def extrair_parcelamentos_documento(texto, arquivo=""):
+    linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
     registros = []
 
-    linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
+    contexto = []
+    ultimo_valor_total = None
 
     for linha in linhas:
         linha_norm = normalizar_texto(linha)
 
-        if contem_admin(linha_norm):
+        if linha_norm.startswith("--- PAGINA"):
+            contexto = []
+            ultimo_valor_total = None
             continue
 
-        m = PADRAO_PARC_EXPLICITA.search(linha_norm)
+        m_nx = PADRAO_NX_DE.search(linha_norm)
 
-        if not m:
+        if m_nx:
+            qtd = int(m_nx.group("qtd"))
+            valor_parcela = converter_valor(m_nx.group("valor"))
+
+            valores = [converter_valor(v) for v in PADRAO_VALOR.findall(linha_norm)]
+            candidatos_total = [v for v in valores if v > valor_parcela]
+
+            if candidatos_total:
+                valor_total = max(candidatos_total)
+            elif ultimo_valor_total and ultimo_valor_total > valor_parcela:
+                valor_total = ultimo_valor_total
+            else:
+                valor_total = qtd * valor_parcela
+
+            compra_linha = limpar_compra(linha_norm)
+            compra_contexto = limpar_compra(" ".join(contexto[-5:]))
+
+            compra = compra_linha if compra_valida(compra_linha) else compra_contexto
+
+            if compra_valida(compra) and qtd >= 1 and valor_parcela > 0:
+                registros.append({
+                    "arquivo_fatura": arquivo,
+                    "compra": compra,
+                    "categoria": "Outros",
+                    "ultima_parcela": 0,
+                    "total_parcelas": qtd,
+                    "valor_parcela": valor_parcela,
+                    "descricao_detectada": linha,
+                    "tipo_detectado": "PARCELA_PENDENTE_NX",
+                    "valor_total_informado": valor_total,
+                })
+
+            contexto = []
+            ultimo_valor_total = None
             continue
 
-        atual = int(m.group("atual"))
-        total = int(m.group("total"))
+        valores_linha = PADRAO_VALOR.findall(linha_norm)
 
-        if not (1 <= atual <= total <= MAX_TOTAL_PARCELAS):
+        if valores_linha:
+            candidatos = [converter_valor(v) for v in valores_linha]
+            ultimo_valor_total = max(candidatos)
+
+            sem_valor = limpar_compra(PADRAO_VALOR.sub(" ", linha_norm))
+
+            if compra_valida(sem_valor):
+                contexto.append(sem_valor)
+                contexto = contexto[-5:]
+
             continue
 
-        valor_parcela = extrair_valor_da_evidencia(linha_norm)
-
-        if valor_parcela <= 0 or valor_parcela > MAX_VALOR_PARCELA:
-            continue
-
-        compra = limpar_compra(linha_norm)
-
-        if not compra_valida(compra):
-            continue
-
-        registros.append({
-            "arquivo_fatura": arquivo,
-            "compra": compra,
-            "compra_key": chave_compra(compra),
-            "categoria": "Outros",
-            "ultima_parcela": atual,
-            "total_parcelas": total,
-            "valor_parcela": valor_parcela,
-            "descricao_detectada": linha,
-            "tipo_detectado": "DOC_PARCELA_EXPLICITA",
-            "confianca_extracao": 0,
-            "prioridade_origem": 1,
-        })
+        if compra_valida(linha_norm):
+            contexto.append(linha_norm)
+            contexto = contexto[-5:]
 
     return registros
 
 
 def extrair_parcelamentos_df(df_base):
-    return extrair_parcelamentos_transacoes(df_base)
+    if df_base is None or df_base.empty:
+        return []
 
+    coluna_desc = encontrar_coluna_descricao(df_base)
+    coluna_valor = encontrar_coluna_valor(df_base)
 
-# ============================================================
-# CONSOLIDAÇÃO
-# ============================================================
+    if coluna_desc is None or coluna_valor is None:
+        return []
+
+    temp = df_base.copy()
+    temp[coluna_valor] = pd.to_numeric(temp[coluna_valor], errors="coerce").fillna(0)
+
+    registros = []
+
+    for _, linha in temp.iterrows():
+        descricao = str(linha.get(coluna_desc, ""))
+        descricao_norm = normalizar_texto(descricao)
+        valor = float(linha.get(coluna_valor, 0))
+        categoria = linha.get("categoria", "Outros")
+        arquivo = linha.get("arquivo_fatura", "")
+
+        if valor <= 0:
+            continue
+
+        if contem_bloqueado(descricao_norm):
+            continue
+
+        m_exp = PADRAO_PARC_EXPLICITA.search(descricao_norm)
+
+        if m_exp:
+            atual = int(m_exp.group("atual"))
+            total = int(m_exp.group("total"))
+
+            if 1 <= atual <= total <= 60:
+                compra = limpar_compra(descricao_norm)
+
+                if compra_valida(compra):
+                    registros.append({
+                        "arquivo_fatura": arquivo,
+                        "compra": compra,
+                        "categoria": categoria,
+                        "ultima_parcela": atual,
+                        "total_parcelas": total,
+                        "valor_parcela": valor,
+                        "descricao_detectada": descricao,
+                        "tipo_detectado": "DF_PARC_EXPLICITA",
+                        "valor_total_informado": total * valor,
+                    })
+
+            continue
+
+        m_nx = PADRAO_NX_DE.search(descricao_norm)
+
+        if m_nx:
+            qtd = int(m_nx.group("qtd"))
+            valor_parcela = converter_valor(m_nx.group("valor"))
+            compra = limpar_compra(descricao_norm)
+
+            if compra_valida(compra) and qtd >= 1 and valor_parcela > 0:
+                registros.append({
+                    "arquivo_fatura": arquivo,
+                    "compra": compra,
+                    "categoria": categoria,
+                    "ultima_parcela": 0,
+                    "total_parcelas": qtd,
+                    "valor_parcela": valor_parcela,
+                    "descricao_detectada": descricao,
+                    "tipo_detectado": "DF_NX_DE",
+                    "valor_total_informado": valor if valor > 0 else qtd * valor_parcela,
+                })
+
+    return registros
+
 
 def consolidar_parcelamentos(registros):
-    colunas = [
-        "arquivo_fatura", "compra", "categoria", "ultima_parcela",
-        "total_parcelas", "parcelas_pagas", "parcelas_abertas",
-        "valor_parcela", "valor_total_compra", "valor_pago",
-        "valor_restante", "status", "tipo_detectado",
-        "descricao_detectada", "classificacao_validacao",
-        "confianca_extracao"
-    ]
-
     if not registros:
-        return pd.DataFrame(columns=colunas)
+        return pd.DataFrame(
+            columns=[
+                "arquivo_fatura", "compra", "categoria", "ultima_parcela",
+                "total_parcelas", "parcelas_pagas", "parcelas_abertas",
+                "valor_parcela", "valor_total_compra", "valor_pago",
+                "valor_restante", "status", "tipo_detectado",
+                "descricao_detectada", "classificacao_validacao"
+            ]
+        )
 
     base = pd.DataFrame(registros)
 
-    if base.empty:
-        return pd.DataFrame(columns=colunas)
-
-    if "compra_key" not in base.columns:
-        base["compra_key"] = base["compra"].apply(chave_compra)
-
-    base["compra_key"] = base["compra_key"].fillna(base["compra"].apply(chave_compra))
+    base["compra_norm"] = base["compra"].apply(normalizar_texto)
     base["valor_parcela"] = pd.to_numeric(base["valor_parcela"], errors="coerce").fillna(0)
     base["total_parcelas"] = pd.to_numeric(base["total_parcelas"], errors="coerce").fillna(0).astype(int)
     base["ultima_parcela"] = pd.to_numeric(base["ultima_parcela"], errors="coerce").fillna(0).astype(int)
-    base["prioridade_origem"] = pd.to_numeric(base.get("prioridade_origem", 1), errors="coerce").fillna(1).astype(int)
-    base["confianca_extracao"] = pd.to_numeric(base.get("confianca_extracao", 0), errors="coerce").fillna(0).astype(int)
 
     base = base[base["valor_parcela"] > 0]
-    base = base[base["valor_parcela"] <= MAX_VALOR_PARCELA]
     base = base[base["total_parcelas"] > 0]
-    base = base[base["total_parcelas"] <= MAX_TOTAL_PARCELAS]
-    base = base[base["ultima_parcela"] <= base["total_parcelas"]]
-    base = base[base["compra_key"].astype(str).str.len() >= 3]
-
-    if base.empty:
-        return pd.DataFrame(columns=colunas)
+    base = base[base["compra_norm"].str.len() >= 3]
 
     consolidados = []
 
-    for (compra_key, total_parcelas), grupo in base.groupby(["compra_key", "total_parcelas"], dropna=False):
-        grupo = grupo.copy()
+    for (compra_norm, total_parcelas), grupo_compra in base.groupby(
+        ["compra_norm", "total_parcelas"],
+        dropna=False
+    ):
+        grupo_compra = grupo_compra.copy()
+        grupo_compra = grupo_compra.sort_values("valor_parcela")
 
-        # Se houver TX e DOC da mesma compra, TX fica.
-        if grupo["tipo_detectado"].astype(str).str.contains("TX_ENGINE", na=False).any():
-            grupo = grupo[grupo["tipo_detectado"].astype(str).str.contains("TX_ENGINE", na=False)].copy()
+        grupos_valor = []
 
-        grupo = grupo.sort_values(
-            ["prioridade_origem", "confianca_extracao"],
-            ascending=[False, False]
-        )
+        for _, row in grupo_compra.iterrows():
+            inserido = False
 
-        grupo = grupo.drop_duplicates(
-            subset=["compra_key", "total_parcelas", "ultima_parcela"],
-            keep="first"
-        )
+            for g in grupos_valor:
+                referencia = float(g[0]["valor_parcela"])
+                atual = float(row["valor_parcela"])
 
-        if grupo.empty:
-            continue
+                if abs(atual - referencia) <= TOLERANCIA_VALOR:
+                    g.append(row)
+                    inserido = True
+                    break
 
-        valores = grupo["valor_parcela"].tolist()
+            if not inserido:
+                grupos_valor.append([row])
 
-        if len(valores) == 1:
-            valor_parcela = float(valores[0])
-        else:
-            max_v = max(valores)
-            min_v = min(valores)
+        for g in grupos_valor:
+            grupo = pd.DataFrame(g)
 
-            if max_v - min_v <= TOLERANCIA_VALOR:
-                valor_parcela = float(pd.Series(valores).median())
+            maior_parcela = int(grupo["ultima_parcela"].max())
+            total = int(grupo["total_parcelas"].max())
+            valor_parcela = float(grupo["valor_parcela"].median())
+
+            compra = grupo.iloc[0]["compra"]
+            categoria = grupo.iloc[0].get("categoria", "Outros")
+            arquivo = grupo.iloc[-1].get("arquivo_fatura", "")
+
+            tipos = " | ".join(grupo["tipo_detectado"].astype(str).unique())
+            descricoes = " | ".join(grupo["descricao_detectada"].astype(str).unique()[:10])
+
+            if maior_parcela == 0:
+                parcelas_abertas = total
             else:
-                valor_parcela = float(grupo.iloc[0]["valor_parcela"])
+                parcelas_abertas = max(total - maior_parcela, 0)
 
-        total = int(total_parcelas)
-        ultima = int(grupo["ultima_parcela"].max())
+            valor_total_compra = total * valor_parcela
+            valor_pago = maior_parcela * valor_parcela
+            valor_restante = parcelas_abertas * valor_parcela
 
-        parcelas_pagas = ultima
-        parcelas_abertas = max(total - ultima, 0)
+            if parcelas_abertas == 0:
+                status = "QUITADO"
+                classificacao = "QUITADO"
+            else:
+                status = "ABERTO"
+                classificacao = "ABERTO_CALCULADO"
 
-        valor_pago = parcelas_pagas * valor_parcela
-        valor_restante = parcelas_abertas * valor_parcela
-        valor_total_compra = total * valor_parcela
+            consolidados.append({
+                "arquivo_fatura": arquivo,
+                "compra": compra,
+                "categoria": categoria,
+                "ultima_parcela": maior_parcela,
+                "total_parcelas": total,
+                "parcelas_pagas": maior_parcela,
+                "parcelas_abertas": parcelas_abertas,
+                "valor_parcela": valor_parcela,
+                "valor_total_compra": valor_total_compra,
+                "valor_pago": valor_pago,
+                "valor_restante": valor_restante,
+                "status": status,
+                "tipo_detectado": tipos,
+                "descricao_detectada": descricoes,
+                "classificacao_validacao": classificacao,
+            })
 
-        status = "QUITADO" if parcelas_abertas == 0 else "ABERTO"
-
-        melhor = grupo.iloc[0]
-
-        tipos = " | ".join(grupo["tipo_detectado"].astype(str).unique())
-        descricoes = " | ".join(grupo["descricao_detectada"].astype(str).unique()[:8])
-        confianca = int(grupo["confianca_extracao"].max())
-
-        if status == "QUITADO":
-            classificacao = "QUITADO"
-        elif "TX_ENGINE" in tipos or len(grupo) >= 2:
-            classificacao = "CONFIRMADO"
-        else:
-            classificacao = "CONFIRMADO_INICIAL"
-
-        consolidados.append({
-            "arquivo_fatura": melhor.get("arquivo_fatura", ""),
-            "compra": melhor.get("compra", compra_key),
-            "categoria": melhor.get("categoria", "Outros"),
-            "ultima_parcela": ultima,
-            "total_parcelas": total,
-            "parcelas_pagas": parcelas_pagas,
-            "parcelas_abertas": parcelas_abertas,
-            "valor_parcela": round(valor_parcela, 2),
-            "valor_total_compra": round(valor_total_compra, 2),
-            "valor_pago": round(valor_pago, 2),
-            "valor_restante": round(valor_restante, 2),
-            "status": status,
-            "tipo_detectado": tipos,
-            "descricao_detectada": descricoes,
-            "classificacao_validacao": classificacao,
-            "confianca_extracao": confianca,
-        })
-
-    resultado = pd.DataFrame(consolidados, columns=colunas)
-
-    if resultado.empty:
-        return resultado
+    resultado = pd.DataFrame(consolidados)
 
     resultado = resultado.sort_values(
         ["status", "valor_restante"],
@@ -641,10 +371,6 @@ def consolidar_parcelamentos(registros):
 
     return resultado
 
-
-# ============================================================
-# CATEGORIA
-# ============================================================
 
 def associar_categoria(df_parcelamentos, df_base):
     if df_parcelamentos is None or df_parcelamentos.empty:
@@ -662,25 +388,22 @@ def associar_categoria(df_parcelamentos, df_base):
         return df_parcelamentos
 
     base = df_base.copy()
-    base["_key"] = base[coluna_desc].apply(chave_compra)
+    base["_busca"] = base[coluna_desc].apply(normalizar_texto)
 
     for idx, row in df_parcelamentos.iterrows():
-        key = chave_compra(row.get("compra", ""))
+        compra = normalizar_texto(row.get("compra", ""))
+        chave = compra[:10]
 
-        if not key:
+        if not chave:
             continue
 
-        match = base[base["_key"].str.contains(key[:12], regex=False, na=False)]
+        match = base[base["_busca"].str.contains(chave, regex=False, na=False)]
 
         if not match.empty:
             df_parcelamentos.at[idx, "categoria"] = match.iloc[0].get("categoria", "Outros")
 
     return df_parcelamentos
 
-
-# ============================================================
-# PROCESSAMENTO PRINCIPAL
-# ============================================================
 
 def processar_parcelamentos(documentos=None, df_base=None):
     if isinstance(documentos, pd.DataFrame) and df_base is None:
@@ -689,10 +412,6 @@ def processar_parcelamentos(documentos=None, df_base=None):
 
     registros = []
 
-    # 1. Principal: registros estruturados do transaction_engine.
-    registros.extend(extrair_parcelamentos_transacoes(df_base))
-
-    # 2. Fallback documental mantido para não perder leitura de várias faturas.
     if isinstance(documentos, list):
         for doc in documentos:
             registros.extend(
@@ -702,15 +421,13 @@ def processar_parcelamentos(documentos=None, df_base=None):
                 )
             )
 
+    registros.extend(extrair_parcelamentos_df(df_base))
+
     df = consolidar_parcelamentos(registros)
     df = associar_categoria(df, df_base)
 
     return df
 
-
-# ============================================================
-# RESUMO
-# ============================================================
 
 def resumo_parcelamentos(df_parcelamentos):
     if df_parcelamentos is None or df_parcelamentos.empty:
