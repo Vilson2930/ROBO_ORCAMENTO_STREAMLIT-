@@ -1,7 +1,7 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão determinística — parcela explícita vira cálculo exato
+# Versão profissional — consolidação com tolerância de centavos
 # ============================================================
 
 import re
@@ -333,16 +333,19 @@ def consolidar_parcelamentos(registros):
             else:
                 parcelas_abertas = max(total - maior_parcela, 0)
 
-            valor_total_compra = total * valor_parcela
-            valor_pago = maior_parcela * valor_parcela
             valor_restante = parcelas_abertas * valor_parcela
+            valor_pago = maior_parcela * valor_parcela
+            valor_total_compra = total * valor_parcela
 
             if parcelas_abertas == 0:
                 status = "QUITADO"
                 classificacao = "QUITADO"
             else:
                 status = "ABERTO"
-                classificacao = "ABERTO_CALCULADO"
+                if len(grupo) >= 2 or maior_parcela >= 2 or "NX_DE" in tipos:
+                    classificacao = "CONFIRMADO"
+                else:
+                    classificacao = "CONFIRMADO_INICIAL"
 
             consolidados.append({
                 "arquivo_fatura": arquivo,
