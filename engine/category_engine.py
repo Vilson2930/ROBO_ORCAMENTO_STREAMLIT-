@@ -2,6 +2,11 @@
 # CATEGORY ENGINE
 # ORÇAMENTO INTELIGENTE
 # Versão comercial com aprendizado via user_rules.csv
+# Correção preservada:
+# - remove "Pagamentos pessoais" como categoria de consumo
+# - serviços viram apenas "Serviços"
+# - intermediadores viram "Intermediadores de pagamento"
+# - pagamentos/créditos/estornos não são classificados como gasto
 # ============================================================
 
 import re
@@ -42,12 +47,34 @@ def carregar_regras_usuario():
             categoria = str(row.get("categoria", "")).strip()
 
             if merchant and categoria:
+                # Correção de compatibilidade:
+                # regras antigas com "Serviços / Pagamentos pessoais"
+                # passam a ser tratadas como "Serviços".
+                if categoria == "Serviços / Pagamentos pessoais":
+                    categoria = "Serviços"
+
+                if categoria == "Pagamentos / Intermediadores":
+                    categoria = "Intermediadores de pagamento"
+
                 regras.append((merchant, categoria))
 
         return regras
 
     except Exception:
         return []
+
+
+TERMOS_NAO_CONSUMO = [
+    "PAGAMENTO", "PAGAMENTO RECEBIDO", "PAGAMENTO EM", "PAGAMENTO PIX",
+    "PAGAMENTO BOLETO", "PAGAMENTOS E FINANCIAMENTOS",
+    "TOTAL DA FATURA", "VALOR TOTAL DA FATURA", "VALOR TOTAL DESTA FATURA",
+    "TOTAL A PAGAR", "TOTAL COMPRAS", "TOTAL FINAL",
+    "FATURA ANTERIOR", "SALDO RESTANTE", "SALDO EM ABERTO",
+    "CREDITO", "CRÉDITO", "ESTORNO", "AJUSTE CRED", "AJUSTE CREDITO",
+    "AJUSTE CRÉDITO", "OBRIGADO PELO PAGAMENTO",
+    "BOLETO", "PIX", "IOF", "JUROS", "ENCARGOS", "ROTATIVO",
+    "MULTA", "MORA", "CET", "LIMITE", "VENCIMENTO"
+]
 
 
 REGRAS_CATEGORIAS = {
@@ -57,7 +84,8 @@ REGRAS_CATEGORIAS = {
         "COMBUSTÍVEL", "GASOLINA", "ETANOL", "DIESEL", "FLEX",
         "IPIRANGA", "SHELL", "PETROBRAS", "VIBRA", "RAIZEN",
         "ALE", "BR MANIA", "TEXACO", "PETRO", "ABASTECE",
-        "ABASTECIMENTO", "COMERCIO DE COMB", "COMÉRCIO DE COMB"
+        "ABASTECIMENTO", "COMERCIO DE COMB", "COMÉRCIO DE COMB",
+        "REDEGUAPODEPOSTOS", "REDE GUAPO", "ROTTA400"
     ],
 
     "Supermercado": [
@@ -69,7 +97,8 @@ REGRAS_CATEGORIAS = {
         "NORDESTÃO", "SUPERPAO", "SUPERPÃO", "HORTIFRUTI", "HORTI",
         "EMPORIO", "EMPÓRIO", "ALIMENTOS", "COMERCIO DE ALIMEN",
         "COMÉRCIO DE ALIMEN", "CESTA", "SACOLAO", "SACOLÃO",
-        "QUITANDA", "VERDURAO", "VERDURÃO", "ACOUGUE", "AÇOUGUE"
+        "QUITANDA", "VERDURAO", "VERDURÃO", "ACOUGUE", "AÇOUGUE",
+        "CRUZ E CRUZ", "REDE PARTEKA"
     ],
 
     "Alimentação fora de casa": [
@@ -83,7 +112,9 @@ REGRAS_CATEGORIAS = {
         "ACAI", "COZINHA", "MARMITA", "MARMITARIA", "DOCERIA",
         "BOLOS", "BOLO", "CHOCOLATE", "MALTE", "GASTRONOM",
         "FEIJOADA", "CONVENIENCIA", "CONVENIÊNCIA", "CARNE",
-        "BEEF", "BURGUES", "BURGUER", "BUFFALO", "CHURROS"
+        "BEEF", "BURGUES", "BURGUER", "BUFFALO", "CHURROS",
+        "DOCE MEL", "BONSUCESSO", "MERUZA", "SABOR IRRESISTIVEL",
+        "D D PRENSADO", "CERVEJARIA"
     ],
 
     "Saúde": [
@@ -97,7 +128,7 @@ REGRAS_CATEGORIAS = {
         "FISIOTERAPIA", "FISIO", "PSICOLOGIA", "TERAPIA",
         "ACADEMIA", "SMART FIT", "BIO RITMO", "BLUEFIT", "GYM",
         "FITNESS", "CROSSFIT", "MUSCULACAO", "MUSCULAÇÃO",
-        "FORMULAS", "FÓRMULAS", "DRA ", "DR "
+        "FORMULAS", "FÓRMULAS", "DRA ", "DR ", "BATEL"
     ],
 
     "Transporte": [
@@ -118,7 +149,8 @@ REGRAS_CATEGORIAS = {
         "TOK STOK", "TOKSTOK", "CAMICADO", "DECOR", "DECORACAO",
         "DECORAÇÃO", "MADEIRA", "MDF", "ILUMINACAO", "ILUMINAÇÃO",
         "MAGAZINE LUIZA", "MAGALU", "CASAS BAHIA", "PONTO FRIO",
-        "FAST SHOP", "FERREIRA COSTA", "CARAJAS", "CARAJÁS"
+        "FAST SHOP", "FERREIRA COSTA", "CARAJAS", "CARAJÁS",
+        "DAL POZZO"
     ],
 
     "Vestuário / Compras": [
@@ -131,7 +163,8 @@ REGRAS_CATEGORIAS = {
         "COSMETICOS", "COSMÉTICOS", "PERFUMARIA", "BELEZA",
         "O BOTICARIO", "BOTICARIO", "NATURA", "AVON", "SEPHORA",
         "DAFITI", "NETSHOES", "CENTAURO", "DECATHLON",
-        "ARMAZEM PARAIBA", "ARMAZÉM PARAÍBA"
+        "ARMAZEM PARAIBA", "ARMAZÉM PARAÍBA", "SHOP2GETHER",
+        "URBAN HELMETS", "URBAN URBAN HELMETS"
     ],
 
     "Assinaturas / Digital": [
@@ -141,14 +174,14 @@ REGRAS_CATEGORIAS = {
         "STARPLUS", "STAR PLUS", "CHATGPT", "OPENAI", "CANVA",
         "ADOBE", "DROPBOX", "ICLOUD", "ONE DRIVE", "ONEDRIVE",
         "NORTON", "AVAST", "KASPERSKY", "HOSTINGER", "GODADDY",
-        "DOMAIN", "DOMINIO", "DOMÍNIO"
+        "DOMAIN", "DOMINIO", "DOMÍNIO", "BITGUARD"
     ],
 
     "Educação": [
         "ESCOLA", "COLEGIO", "COLÉGIO", "FACULDADE", "UNIVERSIDADE",
         "CURSO", "EDUCACAO", "EDUCAÇÃO", "LIVRARIA", "MATERIAL ESCOLAR",
         "UDEMY", "ALURA", "HOTMART", "EDUZZ", "KIRVANO", "KIWIFY",
-        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO"
+        "COURSERA", "DOMESTIKA", "EAD", "APOSTILA", "LIVRO", "ICTUS"
     ],
 
     "Lazer / Viagens": [
@@ -157,20 +190,21 @@ REGRAS_CATEGORIAS = {
         "INGRESSO", "INGRESSO COM", "EVENTO", "EVENTOS", "SHOW",
         "TEATRO", "PARQUE", "CLUBE", "DRINKS", "BALADA", "FESTA",
         "TURISMO", "VIAGEM", "VIAGENS", "RESORT", "MOTORSPORT",
-        "RACING"
+        "RACING", "GRANDE HOTEL", "NOVA PARADA HOTEL"
     ],
 
-    "Serviços / Pagamentos pessoais": [
+    "Serviços": [
         "BARBEARIA", "SALAO", "SALÃO", "CABELEIREIRO", "MANICURE",
         "PEDICURE", "LAVANDERIA", "LAVA JATO", "SERVICOS", "SERVIÇOS",
         "CONSULTORIA", "MANUTENCAO", "MANUTENÇÃO", "REPARO",
         "ASSISTENCIA", "ASSISTÊNCIA", "OFICINA", "MECANICA", "MECÂNICA",
-        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA"
+        "CHAVEIRO", "COSTURA", "ALFAIATE", "CUIDADOR", "DIARISTA",
+        "LOBO MOTOS", "CREDPAG", "FIANCA", "FIANÇA"
     ],
 
-    "Pagamentos / Intermediadores": [
+    "Intermediadores de pagamento": [
         "MERCADO PAGO", "PICPAY", "PAGSEGURO", "GETNET", "STONE",
-        "CIELO", "REDE", "SUMUP", "TON", "MP ", "BLU INSTITUICAO",
+        "CIELO", "SUMUP", "TON", "MP ", "BLU INSTITUICAO",
         "INSTITUICAO DE PAG", "INSTITUIÇÃO DE PAG", "ADIQ", "MAXISCARD",
         "PAYPAL", "EBANX", "ASAAS", "IUGU", "PAGAR ME", "PAGARME",
         "PG ", "JIM COM", "JIM.COM", "ZIG"
@@ -191,9 +225,19 @@ REGRAS_CATEGORIAS = {
     "Financeiro / Bancário": [
         "SEGURO", "SEGURADORA", "PREVIDENCIA", "PREVIDÊNCIA",
         "CONSORCIO", "CONSÓRCIO", "BANCO", "FINANCEIRA",
-        "CARTAO", "CARTÃO", "ANUIDADE", "JUROS", "ENCARGOS"
+        "CARTAO", "CARTÃO", "ANUIDADE"
     ],
 }
+
+
+def eh_nao_consumo(texto):
+    texto = normalizar_texto(texto)
+
+    for termo in TERMOS_NAO_CONSUMO:
+        if normalizar_texto(termo) in texto:
+            return True
+
+    return False
 
 
 def classificar_por_user_rules(texto):
@@ -213,7 +257,6 @@ def detectar_pessoa_fisica(texto):
         return True
 
     palavras = texto.split()
-
     conectores = {"DE", "DA", "DO", "DAS", "DOS", "E"}
 
     nomes_validos = [
@@ -233,6 +276,9 @@ def classificar_categoria(merchant):
     if not texto:
         return "Outros"
 
+    if eh_nao_consumo(texto):
+        return "Não consumo"
+
     categoria_usuario = classificar_por_user_rules(texto)
 
     if categoria_usuario:
@@ -246,7 +292,7 @@ def classificar_categoria(merchant):
                 return categoria
 
     if detectar_pessoa_fisica(texto):
-        return "Serviços / Pagamentos pessoais"
+        return "Serviços"
 
     return "Outros"
 
@@ -262,6 +308,10 @@ def processar_categorias(df):
 
     df["categoria"] = df["merchant"].apply(classificar_categoria)
 
+    # Segurança: se algum pagamento/crédito passar pelo transaction_engine,
+    # ele não deve aparecer como consumo nos gráficos.
+    df = df[df["categoria"] != "Não consumo"].copy()
+
     return df
 
 
@@ -273,6 +323,13 @@ def resumo_categorias(df):
 
     if "categoria" not in df.columns:
         df = processar_categorias(df)
+
+    df = df[df["categoria"] != "Não consumo"].copy()
+
+    if df.empty:
+        return pd.DataFrame(
+            columns=["valor_total", "quantidade", "ticket_medio", "percentual_total"]
+        )
 
     valor_total = df["valor"].sum()
 
@@ -305,6 +362,7 @@ def auditar_outros(df, top=30):
     if "categoria" not in df.columns:
         df = processar_categorias(df)
 
+    df = df[df["categoria"] != "Não consumo"].copy()
     outros = df[df["categoria"] == "Outros"]
 
     if len(outros) == 0:
