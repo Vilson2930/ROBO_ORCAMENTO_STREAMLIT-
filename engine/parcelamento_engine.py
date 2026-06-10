@@ -1,14 +1,16 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — integração segura com Transaction Engine
+# Versão integrada com Transaction Engine Fase 2
 #
-# Correções principais:
-# - NÃO transforma float 169.95 em 16995
-# - NÃO confunde data 01/06 com parcela sem contexto
-# - Usa campos novos do transaction_engine.py
-# - Preserva fallback por texto bruto
-# - Aplica trava de sanidade contra valores absurdos
+# Corrige:
+# - lê campos novos do transaction_engine.py:
+#   parcelado, parcela_atual, total_parcelas, parcelas_abertas,
+#   valor_parcela, tipo_parcela, linha_original_pdf, confianca_extracao
+# - preserva leitura antiga por descrição
+# - preserva leitura por documento/PDF
+# - consolida parcelas com tolerância de centavos
+# - separa ABERTO e QUITADO corretamente
 # ============================================================
 
 import re
@@ -17,9 +19,6 @@ import unicodedata
 
 
 TOLERANCIA_VALOR = 0.15
-MAX_TOTAL_PARCELAS = 60
-MAX_VALOR_PARCELA = 50000.0
-MAX_VALOR_TOTAL_COMPRA = 500000.0
 
 
 # ============================================================
@@ -36,36 +35,8 @@ def normalizar_texto(texto):
 
 
 def converter_valor(valor):
-    """
-    Conversor seguro:
-    - Se já for número, retorna float direto.
-    - Se vier como '169,95', converte para 169.95.
-    - Se vier como '1.699,95', converte para 1699.95.
-    - Evita transformar 169.95 em 16995.
-    """
-    if valor is None:
-        return 0.0
-
-    if isinstance(valor, (int, float)):
-        try:
-            return float(valor)
-        except Exception:
-            return 0.0
-
-    texto = str(valor).strip()
-
-    if not texto:
-        return 0.0
-
-    texto = texto.replace("R$", "").replace(" ", "")
-
     try:
-        if "," in texto:
-            texto = texto.replace(".", "").replace(",", ".")
-            return float(texto)
-
-        return float(texto)
-
+        return float(str(valor).replace("R$", "").replace(" ", "").replace(".", "").replace(",", "."))
     except Exception:
         return 0.0
 
@@ -115,11 +86,6 @@ PADRAO_N_PARCELAS = re.compile(
     re.IGNORECASE
 )
 
-PADRAO_DATA = re.compile(
-    r"\b\d{2}/\d{2}(?:/\d{4})?\b",
-    re.IGNORECASE
-)
-
 
 TERMOS_BLOQUEADOS = [
     "PAGAMENTO", "PIX", "BOLETO", "ESTORNO", "CREDITO", "CRÉDITO",
@@ -130,7 +96,7 @@ TERMOS_BLOQUEADOS = [
 
 
 # ============================================================
-# VALIDAÇÕES
+# VALIDAÇÃO
 # ============================================================
 
 def contem_bloqueado(texto):
@@ -142,11 +108,13 @@ def limpar_compra(texto):
     texto = normalizar_texto(texto)
     texto = PADRAO_NX_DE.sub(" ", texto)
     texto = PADRAO_PARC_EXPLICITA.sub(" ", texto)
+    texto = PADRAO_PARC_BARRA.sub(" ", texto)
+    texto = PADRAO_PARC_DE.sub(" ", texto)
     texto = PADRAO_NX.sub(" ", texto)
     texto = PADRAO_EM_NX.sub(" ", texto)
     texto = PADRAO_N_PARCELAS.sub(" ", texto)
     texto = PADRAO_VALOR.sub(" ", texto)
-    texto = PADRAO_DATA.sub(" ", texto)
+    texto = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", texto)
     texto = re.sub(r"[*]+", " ", texto)
     texto = re.sub(r"\(\s*\)", " ", texto)
     texto = re.sub(r"[-–—]+", " ", texto)
@@ -167,60 +135,6 @@ def compra_valida(compra):
         return False
 
     if not re.search(r"[A-Z]", compra):
-        return False
-
-    return True
-
-
-def numero_valido(valor):
-    try:
-        valor = float(valor)
-        return valor > 0
-    except Exception:
-        return False
-
-
-def parcela_valida(atual, total):
-    try:
-        atual = int(atual)
-        total = int(total)
-    except Exception:
-        return False
-
-    if total <= 0:
-        return False
-
-    if total > MAX_TOTAL_PARCELAS:
-        return False
-
-    if atual < 0:
-        return False
-
-    if atual > total:
-        return False
-
-    return True
-
-
-def valores_sanos(valor_parcela, total_parcelas):
-    try:
-        valor_parcela = float(valor_parcela)
-        total_parcelas = int(total_parcelas)
-    except Exception:
-        return False
-
-    if valor_parcela <= 0:
-        return False
-
-    if valor_parcela > MAX_VALOR_PARCELA:
-        return False
-
-    if total_parcelas <= 0 or total_parcelas > MAX_TOTAL_PARCELAS:
-        return False
-
-    valor_total = valor_parcela * total_parcelas
-
-    if valor_total > MAX_VALOR_TOTAL_COMPRA:
         return False
 
     return True
@@ -247,6 +161,15 @@ def encontrar_coluna_descricao(df):
     return None
 
 
+def encontrar_coluna_valor(df):
+    for col in ["valor_parcela", "valor", "valor_total", "total", "amount", "gasto"]:
+        if col in df.columns:
+            return col
+
+    numericas = df.select_dtypes(include="number").columns.tolist()
+    return numericas[0] if numericas else None
+
+
 # ============================================================
 # EXTRAÇÃO DE PARCELA EM TEXTO
 # ============================================================
@@ -258,41 +181,34 @@ def extrair_parcela_texto(texto):
     if m:
         atual = int(m.group("atual"))
         total = int(m.group("total"))
-
-        if parcela_valida(atual, total):
+        if 1 <= atual <= total <= 60:
             return atual, total, 0.0, "PARCELA_EXPLICITA"
 
     m = PADRAO_NX_DE.search(texto)
     if m:
         total = int(m.group("qtd"))
         valor_parcela = converter_valor(m.group("valor"))
-
-        if parcela_valida(0, total) and valor_parcela > 0:
+        if 1 <= total <= 60 and valor_parcela > 0:
             return 0, total, valor_parcela, "NX_DE_VALOR"
 
     m = PADRAO_EM_NX.search(texto)
     if m:
         total = int(m.group("total"))
-
-        if parcela_valida(0, total):
+        if 1 <= total <= 60:
             return 0, total, 0.0, "EM_NX"
 
     m = PADRAO_NX.search(texto)
     if m:
         total = int(m.group("total"))
-
-        if parcela_valida(0, total):
+        if 1 <= total <= 60:
             return 0, total, 0.0, "NX"
 
     m = PADRAO_N_PARCELAS.search(texto)
     if m:
         total = int(m.group("total"))
-
-        if parcela_valida(0, total):
+        if 1 <= total <= 60:
             return 0, total, 0.0, "N_PARCELAS"
 
-    # Formatos 01/06 e 01 DE 06 só são aceitos com contexto explícito.
-    # Isso impede confundir datas com parcelas.
     tem_contexto = any(p in texto for p in [
         "PARC", "PARCELA", "PARCELADO", "COMPRA", "SEM JUROS",
         "PARCELAS", "PRESTACOES", "PRESTAÇÕES"
@@ -303,65 +219,21 @@ def extrair_parcela_texto(texto):
         if m:
             atual = int(m.group("atual"))
             total = int(m.group("total"))
-
-            if parcela_valida(atual, total):
+            if 1 <= atual <= total <= 60:
                 return atual, total, 0.0, "BARRA_CONTEXTO"
 
         m = PADRAO_PARC_DE.search(texto)
         if m:
             atual = int(m.group("atual"))
             total = int(m.group("total"))
-
-            if parcela_valida(atual, total):
+            if 1 <= atual <= total <= 60:
                 return atual, total, 0.0, "DE_CONTEXTO"
 
     return 0, 0, 0.0, ""
 
 
 # ============================================================
-# REGISTRO PADRÃO
-# ============================================================
-
-def criar_registro(
-    arquivo,
-    compra,
-    categoria,
-    ultima_parcela,
-    total_parcelas,
-    valor_parcela,
-    descricao_detectada,
-    tipo_detectado,
-    confianca_extracao=0,
-):
-    if not compra_valida(compra):
-        return None
-
-    ultima_parcela = int(ultima_parcela or 0)
-    total_parcelas = int(total_parcelas or 0)
-    valor_parcela = float(valor_parcela or 0)
-
-    if not parcela_valida(ultima_parcela, total_parcelas):
-        return None
-
-    if not valores_sanos(valor_parcela, total_parcelas):
-        return None
-
-    return {
-        "arquivo_fatura": arquivo,
-        "compra": limpar_compra(compra),
-        "categoria": categoria or "Outros",
-        "ultima_parcela": ultima_parcela,
-        "total_parcelas": total_parcelas,
-        "valor_parcela": valor_parcela,
-        "descricao_detectada": str(descricao_detectada or ""),
-        "tipo_detectado": str(tipo_detectado or ""),
-        "valor_total_informado": round(total_parcelas * valor_parcela, 2),
-        "confianca_extracao": int(confianca_extracao or 0),
-    }
-
-
-# ============================================================
-# EXTRAÇÃO A PARTIR DO TRANSACTION ENGINE
+# EXTRAÇÃO A PARTIR DOS NOVOS CAMPOS DO TRANSACTION ENGINE
 # ============================================================
 
 def extrair_parcelamentos_transacoes(df_base):
@@ -394,7 +266,7 @@ def extrair_parcelamentos_transacoes(df_base):
         tipo_parcela = str(linha.get("tipo_parcela", ""))
         confianca = int(pd.to_numeric(linha.get("confianca_extracao", 0), errors="coerce") or 0)
 
-        # Caminho principal: campos estruturados do transaction_engine
+        # 1) Caminho principal: campos novos já vieram do transaction_engine
         if parcelado and total_parcelas > 0:
             compra = limpar_compra(descricao)
 
@@ -407,29 +279,27 @@ def extrair_parcelamentos_transacoes(df_base):
             if not compra_valida(compra):
                 continue
 
-            # Regra segura:
-            # valor_parcela vem primeiro da coluna estruturada.
-            # Se não existir, usa valor do lançamento.
             valor_parcela = valor_parcela_col if valor_parcela_col > 0 else valor_lancamento
 
-            registro = criar_registro(
-                arquivo=arquivo,
-                compra=compra,
-                categoria=categoria,
-                ultima_parcela=parcela_atual,
-                total_parcelas=total_parcelas,
-                valor_parcela=valor_parcela,
-                descricao_detectada=linha_original_pdf or descricao_original,
-                tipo_detectado=f"TX_ENGINE_{tipo_parcela or 'PARCELADO'}",
-                confianca_extracao=confianca,
-            )
+            if valor_parcela <= 0:
+                continue
 
-            if registro:
-                registros.append(registro)
+            registros.append({
+                "arquivo_fatura": arquivo,
+                "compra": compra,
+                "categoria": categoria,
+                "ultima_parcela": parcela_atual,
+                "total_parcelas": total_parcelas,
+                "valor_parcela": valor_parcela,
+                "descricao_detectada": linha_original_pdf or descricao_original,
+                "tipo_detectado": f"TX_ENGINE_{tipo_parcela or 'PARCELADO'}",
+                "valor_total_informado": total_parcelas * valor_parcela,
+                "confianca_extracao": confianca,
+            })
 
             continue
 
-        # Caminho de compatibilidade: tenta extrair do texto
+        # 2) Caminho de compatibilidade: ainda tenta extrair do texto
         texto_busca = " ".join([
             descricao,
             descricao_original,
@@ -451,26 +321,27 @@ def extrair_parcelamentos_transacoes(df_base):
 
         valor_parcela = valor_parcela_detectado if valor_parcela_detectado > 0 else valor_lancamento
 
-        registro = criar_registro(
-            arquivo=arquivo,
-            compra=compra,
-            categoria=categoria,
-            ultima_parcela=atual,
-            total_parcelas=total,
-            valor_parcela=valor_parcela,
-            descricao_detectada=linha_original_pdf or descricao_original,
-            tipo_detectado=f"DF_{tipo}",
-            confianca_extracao=confianca,
-        )
+        if valor_parcela <= 0:
+            continue
 
-        if registro:
-            registros.append(registro)
+        registros.append({
+            "arquivo_fatura": arquivo,
+            "compra": compra,
+            "categoria": categoria,
+            "ultima_parcela": atual,
+            "total_parcelas": total,
+            "valor_parcela": valor_parcela,
+            "descricao_detectada": linha_original_pdf or descricao_original,
+            "tipo_detectado": f"DF_{tipo}",
+            "valor_total_informado": total * valor_parcela,
+            "confianca_extracao": confianca,
+        })
 
     return registros
 
 
 # ============================================================
-# EXTRAÇÃO A PARTIR DO TEXTO BRUTO DO PDF
+# EXTRAÇÃO ANTIGA A PARTIR DE DOCUMENTO/TEXTO PDF
 # ============================================================
 
 def extrair_parcelamentos_documento(texto, arquivo=""):
@@ -495,21 +366,15 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
             valor_total = None
 
             if valores:
-                candidatos_total = [
-                    v for v in valores
-                    if valor_parcela_detectado <= 0 or v > valor_parcela_detectado
-                ]
-
+                candidatos_total = [v for v in valores if valor_parcela_detectado <= 0 or v > valor_parcela_detectado]
                 if candidatos_total:
                     valor_total = max(candidatos_total)
 
             if valor_parcela_detectado > 0:
                 valor_parcela = valor_parcela_detectado
-
             elif ultimo_valor_total and total > 0:
                 valor_parcela = round(ultimo_valor_total / total, 2)
                 valor_total = ultimo_valor_total
-
             else:
                 valor_parcela = 0.0
 
@@ -518,20 +383,19 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
 
             compra = compra_linha if compra_valida(compra_linha) else compra_contexto
 
-            registro = criar_registro(
-                arquivo=arquivo,
-                compra=compra,
-                categoria="Outros",
-                ultima_parcela=atual,
-                total_parcelas=total,
-                valor_parcela=valor_parcela,
-                descricao_detectada=linha,
-                tipo_detectado=f"DOC_{tipo}",
-                confianca_extracao=0,
-            )
-
-            if registro:
-                registros.append(registro)
+            if compra_valida(compra) and valor_parcela > 0:
+                registros.append({
+                    "arquivo_fatura": arquivo,
+                    "compra": compra,
+                    "categoria": "Outros",
+                    "ultima_parcela": atual,
+                    "total_parcelas": total,
+                    "valor_parcela": valor_parcela,
+                    "descricao_detectada": linha,
+                    "tipo_detectado": f"DOC_{tipo}",
+                    "valor_total_informado": valor_total if valor_total else total * valor_parcela,
+                    "confianca_extracao": 0,
+                })
 
             contexto = []
             ultimo_valor_total = None
@@ -558,7 +422,14 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
     return registros
 
 
+# ============================================================
+# COMPATIBILIDADE COM DF ANTIGO
+# ============================================================
+
 def extrair_parcelamentos_df(df_base):
+    if df_base is None or df_base.empty:
+        return []
+
     return extrair_parcelamentos_transacoes(df_base)
 
 
@@ -567,17 +438,17 @@ def extrair_parcelamentos_df(df_base):
 # ============================================================
 
 def consolidar_parcelamentos(registros):
-    colunas = [
-        "arquivo_fatura", "compra", "categoria", "ultima_parcela",
-        "total_parcelas", "parcelas_pagas", "parcelas_abertas",
-        "valor_parcela", "valor_total_compra", "valor_pago",
-        "valor_restante", "status", "tipo_detectado",
-        "descricao_detectada", "classificacao_validacao",
-        "confianca_extracao"
-    ]
-
     if not registros:
-        return pd.DataFrame(columns=colunas)
+        return pd.DataFrame(
+            columns=[
+                "arquivo_fatura", "compra", "categoria", "ultima_parcela",
+                "total_parcelas", "parcelas_pagas", "parcelas_abertas",
+                "valor_parcela", "valor_total_compra", "valor_pago",
+                "valor_restante", "status", "tipo_detectado",
+                "descricao_detectada", "classificacao_validacao",
+                "confianca_extracao"
+            ]
+        )
 
     base = pd.DataFrame(registros)
 
@@ -592,15 +463,8 @@ def consolidar_parcelamentos(registros):
     base["confianca_extracao"] = pd.to_numeric(base["confianca_extracao"], errors="coerce").fillna(0).astype(int)
 
     base = base[base["valor_parcela"] > 0]
-    base = base[base["valor_parcela"] <= MAX_VALOR_PARCELA]
     base = base[base["total_parcelas"] > 0]
-    base = base[base["total_parcelas"] <= MAX_TOTAL_PARCELAS]
-    base = base[base["ultima_parcela"] <= base["total_parcelas"]]
     base = base[base["compra_norm"].str.len() >= 3]
-    base = base[(base["valor_parcela"] * base["total_parcelas"]) <= MAX_VALOR_TOTAL_COMPRA]
-
-    if base.empty:
-        return pd.DataFrame(columns=colunas)
 
     consolidados = []
 
@@ -635,12 +499,6 @@ def consolidar_parcelamentos(registros):
             total = int(grupo["total_parcelas"].max())
             valor_parcela = float(grupo["valor_parcela"].median())
 
-            if not parcela_valida(maior_parcela, total):
-                continue
-
-            if not valores_sanos(valor_parcela, total):
-                continue
-
             compra = grupo.iloc[0]["compra"]
             categoria = grupo.iloc[0].get("categoria", "Outros")
             arquivo = grupo.iloc[-1].get("arquivo_fatura", "")
@@ -659,9 +517,6 @@ def consolidar_parcelamentos(registros):
             valor_restante = parcelas_abertas * valor_parcela
             valor_pago = parcelas_pagas * valor_parcela
             valor_total_compra = total * valor_parcela
-
-            if valor_total_compra > MAX_VALOR_TOTAL_COMPRA:
-                continue
 
             if parcelas_abertas == 0:
                 status = "QUITADO"
@@ -693,7 +548,7 @@ def consolidar_parcelamentos(registros):
                 "confianca_extracao": confianca,
             })
 
-    resultado = pd.DataFrame(consolidados, columns=colunas)
+    resultado = pd.DataFrame(consolidados)
 
     if resultado.empty:
         return resultado
@@ -754,10 +609,10 @@ def processar_parcelamentos(documentos=None, df_base=None):
 
     registros = []
 
-    # 1. Principal: campos estruturados vindos do transaction_engine.py
+    # 1. Pega parcelamentos já estruturados pelo transaction_engine.py
     registros.extend(extrair_parcelamentos_transacoes(df_base))
 
-    # 2. Fallback: texto bruto dos PDFs
+    # 2. Mantém fallback por texto bruto do PDF
     if isinstance(documentos, list):
         for doc in documentos:
             registros.extend(
