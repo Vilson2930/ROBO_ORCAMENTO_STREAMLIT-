@@ -1,13 +1,24 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — leitura por seção
+# Versão universal — leitura ampla de faturas brasileiras
 #
-# Corrige:
-# - compras à vista da Caixa/Nubank/Inter
-# - compras parceladas
-# - valores com D/C no final: 37,89D / 1.561,74D
-# - não depende apenas de regex solto
+# Função:
+# - Ler compras à vista
+# - Ler compras parceladas
+# - Ler anuidade
+# - Ignorar pagamentos, créditos, totais, limites, boletos, juros e textos institucionais
+# - Aceitar formatos Caixa, Nubank, Inter, bancos tradicionais e layouts genéricos
+#
+# Regra central:
+# Toda linha válida precisa ter:
+#   DATA + DESCRIÇÃO + VALOR
+#
+# Exemplos aceitos:
+# 29/12 SUPERMERCADO SUPERPAO GUARAPUAVA 37,89D
+# 07 MAI •••• 1911 Lobo Motos - Parcela 5/7 R$ 1.039,42
+# 23/11 BITGUARD 03 DE 04 OSASCO 457,00D
+# 15/03 IFOOD R$ 82,55
 # ============================================================
 
 import re
@@ -15,77 +26,193 @@ import pandas as pd
 import unicodedata
 
 
+# ============================================================
+# MESES
+# ============================================================
+
 MESES = {
-    "jan": "01", "janeiro": "01",
-    "fev": "02", "fevereiro": "02",
-    "mar": "03", "marco": "03", "março": "03",
-    "abr": "04", "abril": "04",
-    "mai": "05", "maio": "05",
-    "jun": "06", "junho": "06",
-    "jul": "07", "julho": "07",
-    "ago": "08", "agosto": "08",
-    "set": "09", "setembro": "09",
-    "out": "10", "outubro": "10",
-    "nov": "11", "novembro": "11",
-    "dez": "12", "dezembro": "12",
+    "JAN": "01", "JANEIRO": "01",
+    "FEV": "02", "FEVEREIRO": "02",
+    "MAR": "03", "MARCO": "03", "MARÇO": "03",
+    "ABR": "04", "ABRIL": "04",
+    "MAI": "05", "MAIO": "05",
+    "JUN": "06", "JUNHO": "06",
+    "JUL": "07", "JULHO": "07",
+    "AGO": "08", "AGOSTO": "08",
+    "SET": "09", "SETEMBRO": "09",
+    "OUT": "10", "OUTUBRO": "10",
+    "NOV": "11", "NOVEMBRO": "11",
+    "DEZ": "12", "DEZEMBRO": "12",
 }
 
+
+# ============================================================
+# BLOQUEIOS UNIVERSAIS
+# ============================================================
+
 BLACKLIST = [
-    "DESPESAS DA FATURA", "DESPESAS DO MES", "DESPESAS DO MÊS",
-    "PAGAMENTO TOTAL", "PAGAMENTO MINIMO", "PAGAMENTO MÍNIMO",
-    "PAGAMENTO ON LINE", "PAGAMENTO ONLINE", "PAGAMENTO -", "PAGAMENTO +",
-    "PAGAMENTO PIX", "PAGAMENTO BOLETO", "PAGAMENTO VIA",
-    "DEBITO AUTOMATICO", "DÉBITO AUTOMÁTICO",
-    "ENCARGOS FINANCEIROS", "ENCARGOS", "ROTATIVO",
-    "TOTAL DA FATURA", "VALOR TOTAL DA FATURA", "TOTAL A PAGAR",
-    "LIMITE", "VENCIMENTO", "FECHAMENTO", "MELHOR DIA",
-    "PAGINA", "PÁGINA", "RESUMO", "FATURA",
-    "SALDO", "CREDITO", "CRÉDITO", "ESTORNO",
+    "FATURA ANTERIOR",
+    "PAGAMENTO RECEBIDO",
+    "PAGAMENTO EM",
     "OBRIGADO PELO PAGAMENTO",
-    "TOTAL DA FATURA ANTERIOR",
-    "AJUSTE CRED",
-    "AJUSTE CREDITO",
-    "AJUSTE CRÉDITO",
-    "IOF", "CET", "JUROS", "MULTA", "MORA",
-    "OPÇÕES PARA PAGAMENTO", "OPCOES PARA PAGAMENTO",
+    "PAGAMENTO TOTAL",
+    "PAGAMENTO MINIMO",
+    "PAGAMENTO MÍNIMO",
+    "PAGAMENTO ON LINE",
+    "PAGAMENTO ONLINE",
+    "PAGAMENTO PIX",
+    "PAGAMENTO BOLETO",
+    "PAGAMENTOS E FINANCIAMENTOS",
+    "SALDO RESTANTE",
+    "SALDO EM ABERTO",
+    "SALDO PREVISTO",
+    "TOTAL A PAGAR",
+    "TOTAL DE COMPRAS",
+    "TOTAL COMPRAS",
+    "TOTAL FINAL",
+    "TOTAL DA FATURA",
+    "VALOR TOTAL DA FATURA",
+    "VALOR TOTAL DESTA FATURA",
+    "VALOR DO DOCUMENTO",
+    "VALOR COBRADO",
+    "LIMITE TOTAL",
+    "LIMITE DISPONIVEL",
+    "LIMITE DISPONÍVEL",
+    "LIMITES DISPONIVEIS",
+    "LIMITES DISPONÍVEIS",
+    "VALOR MAXIMO",
+    "VALOR MÁXIMO",
+    "SAQUE NO CREDITO",
+    "SAQUE NO CRÉDITO",
+    "PIX NO CREDITO",
+    "PIX NO CRÉDITO",
+    "BOLETO NO CREDITO",
+    "BOLETO NO CRÉDITO",
+    "VENCIMENTO",
+    "FECHAMENTO",
+    "MELHOR DATA",
+    "MELHOR DIA",
+    "RESUMO DA FATURA",
+    "RESUMO",
+    "DEMONSTRATIVO",
+    "INFORMACOES COMPLEMENTARES",
+    "INFORMAÇÕES COMPLEMENTARES",
+    "PROGRAMA DE PONTOS",
+    "GUIA DE CONSUMO",
+    "ENCARGOS",
+    "JUROS",
+    "IOF",
+    "CET",
+    "ROTATIVO",
+    "MULTA",
+    "MORA",
+    "ANALISES",
+    "ANÁLISES",
+    "BANCO CENTRAL",
+    "REGISTRATO",
+    "SCR",
+    "RESOLUCAO",
+    "RESOLUÇÃO",
+    "DECLARA",
+    "LEI 12.007",
+    "BOLETO",
+    "LINHA DIGITAVEL",
+    "LINHA DIGITÁVEL",
+    "CODIGO DE BARRAS",
+    "CÓDIGO DE BARRAS",
+    "AUTENTICACAO MECANICA",
+    "AUTENTICAÇÃO MECÂNICA",
+    "RECIBO DO PAGADOR",
+    "FICHA DE COMPENSACAO",
+    "FICHA DE COMPENSAÇÃO",
+    "BENEFICIARIO",
+    "BENEFICIÁRIO",
+    "PAGADOR",
+    "SACADOR",
+    "AGENCIA",
+    "AGÊNCIA",
+    "NOSSO NUMERO",
+    "NOSSO NÚMERO",
+    "CPF",
+    "CNPJ",
+    "OUVIDORIA",
+    "SAC CAIXA",
+    "CENTRAL DE ATENDIMENTO",
+    "APP CARTOES",
+    "APP CARTÕES",
+    "BAIXE AGORA",
+    "LEGENDA",
+    "CHIP E SENHA",
+    "POR APROXIMACAO",
+    "POR APROXIMAÇÃO",
+    "COMPRA PELA INTERNET",
+    "TARJA MAGNETICA",
+    "TARJA MAGNÉTICA",
+    "OPCOES PARA PAGAMENTO",
+    "OPÇÕES PARA PAGAMENTO",
     "PARCELAMENTO DE FATURA",
-    "TOTAL COMPRAS", "TOTAL FINAL", "LEGENDA",
-    "INFORMAÇÕES COMPLEMENTARES", "INFORMACOES COMPLEMENTARES",
-    "PROGRAMA DE PONTOS", "GUIA DE CONSUMO",
+    "PARCELE A SUA FATURA",
+    "SIMULAR",
+    "SIMULE",
 ]
+
 
 CABECALHOS = [
     "DATA DESCRICAO CIDADE PAIS VALOR",
-    "DATA DESCRIÇÃO CIDADE/PAÍS VALOR",
     "DATA DESCRIÇÃO CIDADE PAÍS VALOR",
+    "DATA DESCRIÇÃO CIDADE/PAÍS VALOR",
     "DATA DESCRICAO VALOR",
     "DATA DESCRIÇÃO VALOR",
-    "VALOR U$$",
+    "TRANSAÇÕES DE",
+    "TRANSACOES DE",
     "CRÉDITO/DÉBITO",
     "CREDITO/DEBITO",
+    "VALOR U$$",
+    "VALOR ORIGINAL",
+    "COTAÇÃO",
+    "COTACAO",
 ]
 
-PADRAO_DATA_VALOR = re.compile(
-    r"(?P<data>\d{2}/\d{2}(?:/\d{4})?)\s+"
-    r"(?P<descricao>.+?)\s+"
-    r"(?P<valor>R?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}|R?\$?\s*\d+,\d{2})\s*(?P<dc>[DC])?$",
+
+# ============================================================
+# PADRÕES
+# ============================================================
+
+PADRAO_VALOR = re.compile(
+    r"R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})\s*[DC]?",
     re.IGNORECASE,
 )
 
-PADRAO_EXTENSO_VALOR = re.compile(
-    r"(?P<dia>\d{1,2})\s+DE\s+(?P<mes>[A-ZÇ]+)\.?\s+(?P<ano>\d{4})\s+"
-    r"(?P<descricao>.+?)\s+"
-    r"(?P<valor>R?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}|R?\$?\s*\d+,\d{2})\s*(?P<dc>[DC])?$",
+PADRAO_VALOR_FINAL = re.compile(
+    r"(?P<valor>R?\$?\s*(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}))\s*(?P<dc>[DC])?\s*$",
+    re.IGNORECASE,
+)
+
+# 29/12 DESCRICAO 37,89D
+PADRAO_DATA_NUMERICA = re.compile(
+    r"^(?P<data>\d{1,2}/\d{1,2}(?:/\d{2,4})?)\s+(?P<resto>.+)$",
+    re.IGNORECASE,
+)
+
+# 07 MAI DESCRICAO R$ 112,50
+PADRAO_DATA_MES_TEXTO = re.compile(
+    r"^(?P<dia>\d{1,2})\s+(?P<mes>[A-ZÇ]{3,9})\.?\s+(?P<resto>.+)$",
+    re.IGNORECASE,
+)
+
+# 11 DE DEZ. 2025 DESCRICAO 84,19
+PADRAO_DATA_EXTENSO = re.compile(
+    r"^(?P<dia>\d{1,2})\s+DE\s+(?P<mes>[A-ZÇ]{3,12})\.?\s+(?P<ano>\d{4})\s+(?P<resto>.+)$",
     re.IGNORECASE,
 )
 
 PADRAO_PARCELA_DE = re.compile(
-    r"\b(?P<atual>\d{1,2})\s*DE\s*(?P<total>\d{1,2})\b",
+    r"\b(?:PARCELA\s*)?(?P<atual>\d{1,2})\s*DE\s*(?P<total>\d{1,2})\b",
     re.IGNORECASE,
 )
 
 PADRAO_PARCELA_BARRA = re.compile(
-    r"\b(?P<atual>\d{1,2})\s*/\s*(?P<total>\d{1,2})\b",
+    r"\b(?:PARCELA\s*)?(?P<atual>\d{1,2})\s*/\s*(?P<total>\d{1,2})\b",
     re.IGNORECASE,
 )
 
@@ -94,11 +221,15 @@ PADRAO_NX = re.compile(
     re.IGNORECASE,
 )
 
-PADRAO_VALOR = re.compile(
-    r"R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})\s*[DC]?",
+PADRAO_CARTAO_MASCARADO = re.compile(
+    r"[•●*]{2,}\s*\d{4}",
     re.IGNORECASE,
 )
 
+
+# ============================================================
+# NORMALIZAÇÃO
+# ============================================================
 
 def normalizar_texto(texto):
     texto = str(texto or "")
@@ -127,7 +258,9 @@ def converter_valor(valor):
         if "," in texto:
             texto = texto.replace(".", "").replace(",", ".")
             return float(texto)
+
         return float(texto)
+
     except Exception:
         return 0.0
 
@@ -137,22 +270,35 @@ def extrair_ano_arquivo(nome_arquivo):
     return m.group(1) if m else "2026"
 
 
-def limpar_descricao(descricao):
-    descricao = str(descricao or "")
-    descricao = PADRAO_VALOR.sub(" ", descricao)
-    descricao = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", descricao)
-    descricao = re.sub(r"\b\d{1,2}\s*DE\s*\d{1,2}\b", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\b\d{1,2}\s*/\s*\d{1,2}\b", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\b\d{1,2}\s*X\b", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"R\$", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"[*|]+", " ", descricao)
-    descricao = re.sub(r"[-–—]+", " ", descricao)
-    descricao = re.sub(r"\s+", " ", descricao)
-    return descricao.strip(" -")
+def montar_data_numerica(data, arquivo):
+    partes = data.split("/")
 
+    if len(partes) == 2:
+        dia = partes[0].zfill(2)
+        mes = partes[1].zfill(2)
+        ano = extrair_ano_arquivo(arquivo)
+        return f"{dia}/{mes}/{ano}"
+
+    if len(partes) == 3:
+        dia = partes[0].zfill(2)
+        mes = partes[1].zfill(2)
+        ano = partes[2]
+
+        if len(ano) == 2:
+            ano = f"20{ano}"
+
+        return f"{dia}/{mes}/{ano}"
+
+    return None
+
+
+# ============================================================
+# FILTROS
+# ============================================================
 
 def linha_cabecalho(linha):
     texto = normalizar_texto(linha)
+
     return any(normalizar_texto(cab) in texto for cab in CABECALHOS)
 
 
@@ -169,19 +315,14 @@ def linha_bloqueada(linha):
         if normalizar_texto(termo) in texto:
             return True
 
-    if texto.endswith("C") and PADRAO_VALOR.search(texto):
+    # crédito real/pagamento não entra como gasto
+    if texto.endswith("C") and PADRAO_VALOR_FINAL.search(texto):
         return True
 
-    if "PAGAMENTO" in texto:
+    if len(texto) > 220:
         return True
 
-    if "BOLETO" in texto or "PIX" in texto:
-        return True
-
-    if len(texto) > 180:
-        return True
-
-    if texto.count("/") > 6:
+    if texto.count("/") > 8:
         return True
 
     return False
@@ -193,13 +334,13 @@ def descricao_valida(descricao):
     if not texto:
         return False
 
-    if linha_bloqueada(texto):
-        return False
-
     if len(texto) < 3:
         return False
 
-    if len(texto) > 120:
+    if len(texto) > 140:
+        return False
+
+    if linha_bloqueada(texto):
         return False
 
     if not re.search(r"[A-Z]", texto):
@@ -208,31 +349,44 @@ def descricao_valida(descricao):
     return True
 
 
+# ============================================================
+# SEÇÕES
+# ============================================================
+
 def detectar_secao(linha, estado_atual=None):
     texto = normalizar_texto(linha)
 
-    if "COMPRAS PARCELADAS" in texto or "DESPESAS A VENCER" in texto:
+    if "COMPRAS PARCELADAS" in texto or "DESPESAS A VENCER" in texto or "PRÓXIMAS FATURAS" in texto or "PROXIMAS FATURAS" in texto:
         return "PARCELADAS"
 
+    if "TRANSAÇÕES DE" in texto or "TRANSACOES DE" in texto:
+        return "TRANSACOES"
+
     if "COMPRAS (" in texto or texto == "COMPRAS":
-        return "AVISTA"
+        return "COMPRAS"
 
     if texto == "ANUIDADE" or texto.startswith("ANUIDADE "):
         return "ANUIDADE"
 
     if (
-        "TOTAL COMPRAS PARCELADAS" in texto
+        "PAGAMENTOS E FINANCIAMENTOS" in texto
+        or "TOTAL COMPRAS PARCELADAS" in texto
         or "TOTAL COMPRAS" in texto
         or "TOTAL FINAL" in texto
         or "VALOR TOTAL DESTA FATURA" in texto
         or "LEGENDA" in texto
-        or "DEMONSTRATIVO" in texto
         or "ENCARGOS" in texto
+        or "LIMITES DISPONIVEIS" in texto
+        or "LIMITES DISPONÍVEIS" in texto
     ):
         return None
 
     return estado_atual
 
+
+# ============================================================
+# PARCELAMENTO
+# ============================================================
 
 def extrair_parcela(descricao):
     texto = normalizar_texto(descricao)
@@ -266,6 +420,41 @@ def extrair_parcela(descricao):
     return 0, 0, ""
 
 
+def limpar_descricao(descricao):
+    texto = str(descricao or "")
+
+    texto = PADRAO_CARTAO_MASCARADO.sub(" ", texto)
+    texto = PADRAO_VALOR.sub(" ", texto)
+    texto = re.sub(r"\bPARCELA\s+\d{1,2}\s*/\s*\d{1,2}\b", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\bPARCELA\s+\d{1,2}\s*DE\s*\d{1,2}\b", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\b\d{1,2}\s*/\s*\d{1,2}\b", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\b\d{1,2}\s*DE\s*\d{1,2}\b", " ", texto, flags=re.IGNORECASE)
+    texto = re.sub(r"\b\d{1,2}\s*X\b", " ", texto, flags=re.IGNORECASE)
+    texto = texto.replace("R$", " ")
+    texto = re.sub(r"[*•●|]+", " ", texto)
+    texto = re.sub(r"[-–—]+", " ", texto)
+    texto = re.sub(r"\s+", " ", texto)
+
+    return texto.strip(" -")
+
+
+# ============================================================
+# EXTRAÇÃO DE LINHA
+# ============================================================
+
+def separar_valor_final(resto):
+    m = PADRAO_VALOR_FINAL.search(str(resto or ""))
+
+    if not m:
+        return None, None, None
+
+    valor = converter_valor(m.group("valor"))
+    dc = str(m.group("dc") or "D").upper()
+    descricao = str(resto[:m.start()]).strip()
+
+    return descricao, valor, dc
+
+
 def montar_item(
     arquivo,
     data,
@@ -288,9 +477,6 @@ def montar_item(
     if valor <= 0:
         return None
 
-    if len(data) == 5:
-        data = f"{data}/{extrair_ano_arquivo(arquivo)}"
-
     parcela_atual = int(parcela_atual or 0)
     total_parcelas = int(total_parcelas or 0)
 
@@ -301,7 +487,7 @@ def montar_item(
         if parcela_atual > total_parcelas:
             return None
 
-        valor_parcela = valor
+        valor_parcela = float(valor)
         parcelas_abertas = max(total_parcelas - parcela_atual, 0)
     else:
         parcela_atual = 0
@@ -324,115 +510,132 @@ def montar_item(
         "valor_parcela": float(valor_parcela),
         "tipo_parcela": tipo_parcela,
         "linha_original_pdf": linha_original_pdf or "",
-        "confianca_extracao": 95 if origem in ["secao_avista", "secao_parcelada", "secao_anuidade"] else 85,
+        "confianca_extracao": 95 if origem.startswith("universal") else 85,
     }
 
 
-def extrair_linha_numerica(linha, arquivo, estado=None):
+def extrair_linha_universal(linha, arquivo, estado=None):
     if linha_bloqueada(linha):
         return None
 
-    m = PADRAO_DATA_VALOR.search(linha.strip())
+    linha_original = str(linha)
+    linha_norm = normalizar_texto(linha)
 
-    if not m:
+    data = None
+    resto = None
+
+    m = PADRAO_DATA_NUMERICA.search(linha_original.strip())
+
+    if m:
+        data = montar_data_numerica(m.group("data"), arquivo)
+        resto = m.group("resto")
+
+    if data is None:
+        m = PADRAO_DATA_MES_TEXTO.search(linha_original.strip())
+
+        if m:
+            mes_nome = normalizar_texto(m.group("mes"))
+            mes = MESES.get(mes_nome)
+
+            if mes:
+                dia = m.group("dia").zfill(2)
+                ano = extrair_ano_arquivo(arquivo)
+                data = f"{dia}/{mes}/{ano}"
+                resto = m.group("resto")
+
+    if data is None:
+        m = PADRAO_DATA_EXTENSO.search(linha_original.strip())
+
+        if m:
+            mes_nome = normalizar_texto(m.group("mes"))
+            mes = MESES.get(mes_nome)
+
+            if mes:
+                dia = m.group("dia").zfill(2)
+                ano = m.group("ano")
+                data = f"{dia}/{mes}/{ano}"
+                resto = m.group("resto")
+
+    if data is None or not resto:
         return None
 
-    data = m.group("data")
-    descricao = m.group("descricao")
-    valor = converter_valor(m.group("valor"))
-    dc = str(m.group("dc") or "D").upper()
+    descricao, valor, dc = separar_valor_final(resto)
+
+    if descricao is None or valor is None:
+        return None
 
     if dc == "C":
         return None
 
     parcela_atual, total_parcelas, tipo_parcela = extrair_parcela(descricao)
 
-    if estado == "PARCELADAS" or total_parcelas > 0:
-        return montar_item(
-            arquivo=arquivo,
-            data=data,
-            descricao=descricao,
-            valor=valor,
-            origem="secao_parcelada" if estado == "PARCELADAS" else "data_valor_parcelado",
-            parcelado=total_parcelas > 0,
-            parcela_atual=parcela_atual,
-            total_parcelas=total_parcelas,
-            tipo_parcela=tipo_parcela,
-            linha_original_pdf=linha,
-        )
+    parcelado = total_parcelas > 0
+
+    origem = "universal_parcelado" if parcelado else "universal_avista"
+
+    if estado == "PARCELADAS":
+        origem = "universal_secao_parcelada"
+
+    if estado == "COMPRAS":
+        origem = "universal_secao_compras"
+
+    if estado == "TRANSACOES":
+        origem = "universal_transacoes"
 
     return montar_item(
         arquivo=arquivo,
         data=data,
         descricao=descricao,
         valor=valor,
-        origem="secao_avista" if estado == "AVISTA" else "data_valor",
-        parcelado=False,
-        linha_original_pdf=linha,
+        origem=origem,
+        parcelado=parcelado,
+        parcela_atual=parcela_atual,
+        total_parcelas=total_parcelas,
+        tipo_parcela=tipo_parcela,
+        linha_original_pdf=linha_original,
     )
 
 
-def extrair_linha_extenso(linha, arquivo):
-    linha_norm = normalizar_texto(linha)
-    m = PADRAO_EXTENSO_VALOR.search(linha_norm)
-
-    if not m:
-        return None
-
-    mes_nome = normalizar_texto(m.group("mes")).lower()
-    mes = MESES.get(mes_nome)
-
-    if not mes:
-        return None
-
-    dia = m.group("dia").zfill(2)
-    ano = m.group("ano")
-    descricao = m.group("descricao")
-    valor = converter_valor(m.group("valor"))
-    dc = str(m.group("dc") or "D").upper()
-
-    if dc == "C":
-        return None
-
-    return montar_item(
-        arquivo=arquivo,
-        data=f"{dia}/{mes}/{ano}",
-        descricao=descricao,
-        valor=valor,
-        origem="data_extenso",
-        parcelado=False,
-        linha_original_pdf=linha,
-    )
-
-
-def extrair_linha_anuidade(linha, arquivo, ano_padrao):
+def extrair_linha_anuidade(linha, arquivo):
     texto = normalizar_texto(linha)
 
     if not texto.startswith("ANUIDADE"):
         return None
 
-    m_valor = PADRAO_VALOR.search(texto)
+    descricao, valor, dc = separar_valor_final(linha)
 
-    if not m_valor:
+    if descricao is None or valor is None:
         return None
+
+    if dc == "C":
+        return None
+
+    parcela_atual, total_parcelas, tipo_parcela = extrair_parcela(descricao)
+    parcelado = total_parcelas > 0
 
     return montar_item(
         arquivo=arquivo,
-        data=f"01/01/{ano_padrao}",
-        descricao=linha,
-        valor=m_valor.group(1),
-        origem="secao_anuidade",
-        parcelado=False,
+        data=f"01/01/{extrair_ano_arquivo(arquivo)}",
+        descricao=descricao,
+        valor=valor,
+        origem="universal_anuidade",
+        parcelado=parcelado,
+        parcela_atual=parcela_atual,
+        total_parcelas=total_parcelas,
+        tipo_parcela=tipo_parcela,
         linha_original_pdf=linha,
     )
 
+
+# ============================================================
+# PROCESSAMENTO
+# ============================================================
 
 def extrair_transacoes_texto(texto, arquivo_origem=""):
     transacoes = []
     linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
 
     estado = None
-    ano = extrair_ano_arquivo(arquivo_origem)
 
     for linha in linhas:
         novo_estado = detectar_secao(linha, estado)
@@ -447,13 +650,10 @@ def extrair_transacoes_texto(texto, arquivo_origem=""):
         item = None
 
         if estado == "ANUIDADE":
-            item = extrair_linha_anuidade(linha, arquivo_origem, ano)
+            item = extrair_linha_anuidade(linha, arquivo_origem)
 
         if item is None:
-            item = extrair_linha_numerica(linha, arquivo_origem, estado)
-
-        if item is None:
-            item = extrair_linha_extenso(linha, arquivo_origem)
+            item = extrair_linha_universal(linha, arquivo_origem, estado)
 
         if item is not None:
             transacoes.append(item)
