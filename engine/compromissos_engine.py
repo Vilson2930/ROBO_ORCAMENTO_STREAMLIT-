@@ -1,12 +1,13 @@
 # ============================================================
 # COMPROMISSOS ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — com trava profissional contra valores absurdos
+# Versão corrigida — preservada + deduplicação profissional
 #
 # Corrige:
 # - valores inflados vindos de conversão anterior, como 169.95 -> 16995
 # - remove compromissos incompatíveis com o gasto analisado
 # - recalcula valor_restante quando necessário
+# - remove duplicatas reais antes da soma
 # - preserva interface e nomes das funções atuais
 # ============================================================
 
@@ -72,6 +73,74 @@ def _converter_numero(valor):
 
     except Exception:
         return 0.0
+
+
+def _normalizar_compra(texto):
+    """
+    Normaliza o nome da compra somente para comparação/deduplicação.
+    Não altera o nome exibido na interface.
+    """
+    texto = str(texto or "").upper().strip()
+    texto = texto.replace("•", "")
+    texto = texto.replace("*", " ")
+    texto = texto.replace("|", " ")
+    texto = " ".join(texto.split())
+    return texto
+
+
+def _deduplicar_compromissos(df):
+    """
+    Remove duplicatas reais vindas de múltiplos leitores.
+
+    Exemplo:
+    O parcelamento_engine e outro leitor podem encontrar a mesma compra.
+    Sem essa trava, o compromissos_engine soma duas vezes.
+    """
+    if df is None or df.empty:
+        return df
+
+    df = df.copy()
+
+    for col in ["compra", "status"]:
+        if col not in df.columns:
+            df[col] = "-"
+
+    for col in ["valor_parcela", "parcelas_abertas", "valor_restante", "valor_total_compra"]:
+        if col not in df.columns:
+            df[col] = 0
+
+    df["_compra_dedupe"] = df["compra"].apply(_normalizar_compra)
+    df["_valor_parcela_dedupe"] = df["valor_parcela"].round(2)
+    df["_valor_restante_dedupe"] = df["valor_restante"].round(2)
+    df["_valor_total_compra_dedupe"] = df["valor_total_compra"].round(2)
+    df["_parcelas_abertas_dedupe"] = df["parcelas_abertas"].astype(int)
+    df["_status_dedupe"] = df["status"].astype(str).str.upper().str.strip()
+
+    df = df.drop_duplicates(
+        subset=[
+            "_compra_dedupe",
+            "_valor_parcela_dedupe",
+            "_parcelas_abertas_dedupe",
+            "_valor_restante_dedupe",
+            "_valor_total_compra_dedupe",
+            "_status_dedupe",
+        ],
+        keep="first"
+    )
+
+    df = df.drop(
+        columns=[
+            "_compra_dedupe",
+            "_valor_parcela_dedupe",
+            "_valor_restante_dedupe",
+            "_valor_total_compra_dedupe",
+            "_parcelas_abertas_dedupe",
+            "_status_dedupe",
+        ],
+        errors="ignore"
+    )
+
+    return df
 
 
 # ============================================================
@@ -170,7 +239,6 @@ def _limpar_compromissos_absurdos(df, gasto_total=0, renda_mensal=None):
 
     # Trava contextual usando a fatura analisada.
     # Se uma parcela mensal for maior que 3x o gasto total da fatura, descarta.
-    # Isso mata exatamente o bug 16995 em fatura de 619,90.
     try:
         base = float(renda_mensal) if renda_mensal else float(gasto_total)
     except Exception:
@@ -183,9 +251,13 @@ def _limpar_compromissos_absurdos(df, gasto_total=0, renda_mensal=None):
         df = df[df["valor_parcela"] <= limite_parcela_contextual].copy()
         df = df[df["valor_restante"] <= limite_restante_contextual].copy()
 
-    # Só mantém compromissos realmente abertos.
+    # Padroniza status.
     if "status" in df.columns:
         df["status"] = df["status"].astype(str).str.upper().str.strip()
+
+    # CORREÇÃO PRINCIPAL:
+    # remove duplicatas reais antes de qualquer soma.
+    df = _deduplicar_compromissos(df)
 
     return df
 
@@ -231,6 +303,9 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
         quitados = df[df["valor_restante"] <= 0].copy()
 
     abertos = abertos[abertos["valor_restante"] > 0].copy()
+
+    # Segurança extra: remove duplicidade também após separar abertos.
+    abertos = _deduplicar_compromissos(abertos)
 
     if abertos.empty:
         resultado = _df_vazio()
@@ -337,7 +412,7 @@ def gerar_resumo_executivo_compromissos(resultado):
         )
 
     return (
-        f"Foram identificadas {resultado['qtd_abertos']} compras parceladas em aberto. "
+        f"Foram identificados {resultado['qtd_abertos']} parcelamentos em aberto. "
         f"Você ainda possui {moeda(resultado['valor_restante_total'])} para pagar no futuro. "
         f"O impacto mensal estimado é de {moeda(resultado['impacto_mensal'])}, "
         f"equivalente a {resultado['impacto_mensal_percentual']:.1f}% da referência analisada. "
@@ -368,6 +443,7 @@ def gerar_top_compromissos(df_parcelamentos, top=5):
             df[col] = 0 if col not in ["compra", "status"] else "-"
 
     df = df[df["valor_restante"] > 0].copy()
+    df = _deduplicar_compromissos(df)
 
     if df.empty:
         return pd.DataFrame()
@@ -391,6 +467,7 @@ def gerar_top_impacto_mensal(df_parcelamentos, top=5):
             df[col] = 0 if col not in ["compra", "status"] else "-"
 
     df = df[df["valor_restante"] > 0].copy()
+    df = _deduplicar_compromissos(df)
 
     if df.empty:
         return pd.DataFrame()
