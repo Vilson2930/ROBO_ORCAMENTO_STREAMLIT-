@@ -1,7 +1,8 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — reconhece somente débitos reais de fatura
+# Versão corrigida — reconhece somente débitos reais da fatura
+# Bloqueia textos institucionais, pagamentos, créditos e totais
 # ============================================================
 
 import re
@@ -26,13 +27,15 @@ MESES = {
 BLACKLIST = [
     "DESPESAS DA FATURA", "DESPESAS DO MES", "DESPESAS DO MÊS",
     "PAGAMENTO TOTAL", "PAGAMENTO MINIMO", "PAGAMENTO MÍNIMO",
+    "PAGAMENTO ON LINE", "PAGAMENTO ONLINE", "PAGAMENTO -", "PAGAMENTO +",
+    "PAGAMENTO PIX", "PAGAMENTO BOLETO", "PAGAMENTO VIA",
+    "DEBITO AUTOMATICO", "DÉBITO AUTOMÁTICO",
     "PRECISA DE UMA FORCA", "PRECISA DE UMA FORÇA",
     "ENCARGOS FINANCEIROS", "ENCARGOS", "ROTATIVO",
     "TOTAL DA FATURA", "VALOR TOTAL DA FATURA", "TOTAL A PAGAR",
     "LIMITE", "VENCIMENTO", "FECHAMENTO", "MELHOR DIA",
     "PAGINA", "PÁGINA", "RESUMO", "FATURA",
     "VILSON JOSE PEREIRA PINTO", "5364", "4593",
-    "IOF", "JUROS", "MULTA", "MORA", "CET",
     "SALDO", "CREDITO", "CRÉDITO", "ESTORNO",
 ]
 
@@ -86,6 +89,18 @@ def linha_bloqueada(linha):
         if normalizar_texto(termo) in texto:
             return True
 
+    if "PAGAMENTO" in texto:
+        return True
+
+    if "BOLETO" in texto or "PIX" in texto:
+        return True
+
+    if texto.endswith("+"):
+        return True
+
+    if " - +" in texto or "+ R$" in texto or " + " in texto:
+        return True
+
     if len(texto) > 120:
         return True
 
@@ -118,6 +133,7 @@ def descricao_valida(descricao):
 
 def extrair_linha_numerica(linha, arquivo):
     m = PADRAO_DATA_VALOR.search(linha.strip())
+
     if not m:
         return None
 
@@ -178,7 +194,6 @@ def extrair_linha_extenso(linha, arquivo):
 
 def extrair_transacoes_texto(texto, arquivo_origem=""):
     transacoes = []
-
     linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
 
     for linha in linhas:
