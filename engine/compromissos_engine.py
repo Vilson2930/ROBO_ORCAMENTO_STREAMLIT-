@@ -1,11 +1,30 @@
 # ============================================================
 # COMPROMISSOS ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão 2.1 — classificação profissional por impacto mensal
+# Versão corrigida — com trava profissional contra valores absurdos
+#
+# Corrige:
+# - valores inflados vindos de conversão anterior, como 169.95 -> 16995
+# - remove compromissos incompatíveis com o gasto analisado
+# - recalcula valor_restante quando necessário
+# - preserva interface e nomes das funções atuais
 # ============================================================
 
 import pandas as pd
 
+
+# ============================================================
+# CONFIGURAÇÕES DE SANIDADE
+# ============================================================
+
+MAX_PARCELA_PADRAO = 10000.0
+MAX_TOTAL_COMPRA_PADRAO = 500000.0
+MAX_PARCELAS_ABERTAS = 60
+
+
+# ============================================================
+# FORMATAÇÃO
+# ============================================================
 
 def moeda(valor):
     try:
@@ -20,6 +39,44 @@ def _valor_seguro(linha, coluna, padrao=0):
     except Exception:
         return padrao
 
+
+def _converter_numero(valor):
+    """
+    Conversor seguro.
+    Se já vier float/int, mantém.
+    Se vier texto brasileiro, converte.
+    Evita converter 169.95 para 16995.
+    """
+    if valor is None:
+        return 0.0
+
+    if isinstance(valor, (int, float)):
+        try:
+            return float(valor)
+        except Exception:
+            return 0.0
+
+    texto = str(valor).strip()
+
+    if not texto:
+        return 0.0
+
+    texto = texto.replace("R$", "").replace(" ", "")
+
+    try:
+        if "," in texto:
+            texto = texto.replace(".", "").replace(",", ".")
+            return float(texto)
+
+        return float(texto)
+
+    except Exception:
+        return 0.0
+
+
+# ============================================================
+# RESULTADO VAZIO
+# ============================================================
 
 def _df_vazio():
     return {
@@ -48,6 +105,95 @@ def _df_vazio():
     }
 
 
+# ============================================================
+# TRAVA DE SANIDADE
+# ============================================================
+
+def _limpar_compromissos_absurdos(df, gasto_total=0, renda_mensal=None):
+    """
+    Remove linhas matematicamente incompatíveis.
+
+    Exemplo do bug:
+    gasto_total = 619.90
+    valor_parcela = 16995.00
+
+    Isso é impossível dentro de uma fatura-teste de R$ 619,90.
+    """
+
+    if df is None or df.empty:
+        return df
+
+    df = df.copy()
+
+    for col in ["valor_restante", "valor_total_compra", "valor_parcela", "parcelas_abertas"]:
+        if col not in df.columns:
+            df[col] = 0
+
+        df[col] = df[col].apply(_converter_numero)
+
+    if "status" not in df.columns:
+        df["status"] = "-"
+
+    if "compra" not in df.columns:
+        df["compra"] = "-"
+
+    if "total_parcelas" not in df.columns:
+        df["total_parcelas"] = 0
+
+    df["total_parcelas"] = df["total_parcelas"].apply(_converter_numero).astype(int)
+    df["parcelas_abertas"] = df["parcelas_abertas"].fillna(0).astype(int)
+
+    # Recalcula valor_restante quando a estrutura permite.
+    # Isso evita depender de valor_restante corrompido.
+    mascara_recalculo = (
+        (df["valor_parcela"] > 0) &
+        (df["parcelas_abertas"] >= 0) &
+        (df["parcelas_abertas"] <= MAX_PARCELAS_ABERTAS)
+    )
+
+    df.loc[mascara_recalculo, "valor_restante"] = (
+        df.loc[mascara_recalculo, "valor_parcela"] *
+        df.loc[mascara_recalculo, "parcelas_abertas"]
+    )
+
+    # Remove parcelas impossíveis.
+    df = df[df["valor_parcela"] > 0].copy()
+    df = df[df["valor_parcela"] <= MAX_PARCELA_PADRAO].copy()
+
+    # Remove quantidade de parcelas absurda.
+    df = df[df["parcelas_abertas"] >= 0].copy()
+    df = df[df["parcelas_abertas"] <= MAX_PARCELAS_ABERTAS].copy()
+
+    # Remove totais impossíveis.
+    df = df[df["valor_restante"] >= 0].copy()
+    df = df[df["valor_total_compra"] <= MAX_TOTAL_COMPRA_PADRAO].copy()
+
+    # Trava contextual usando a fatura analisada.
+    # Se uma parcela mensal for maior que 3x o gasto total da fatura, descarta.
+    # Isso mata exatamente o bug 16995 em fatura de 619,90.
+    try:
+        base = float(renda_mensal) if renda_mensal else float(gasto_total)
+    except Exception:
+        base = 0.0
+
+    if base > 0:
+        limite_parcela_contextual = max(base * 3, 2000.0)
+        limite_restante_contextual = max(base * 120, 50000.0)
+
+        df = df[df["valor_parcela"] <= limite_parcela_contextual].copy()
+        df = df[df["valor_restante"] <= limite_restante_contextual].copy()
+
+    # Só mantém compromissos realmente abertos.
+    if "status" in df.columns:
+        df["status"] = df["status"].astype(str).str.upper().str.strip()
+
+    return df
+
+
+# ============================================================
+# ANÁLISE PRINCIPAL
+# ============================================================
+
 def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
 
     if df_parcelamentos is None or df_parcelamentos.empty:
@@ -66,10 +212,16 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
         if col not in df.columns:
             df[col] = "-" if col in ["status", "compra"] else 0
 
-    df["valor_restante"] = pd.to_numeric(df["valor_restante"], errors="coerce").fillna(0)
-    df["valor_total_compra"] = pd.to_numeric(df["valor_total_compra"], errors="coerce").fillna(0)
-    df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce").fillna(0)
-    df["parcelas_abertas"] = pd.to_numeric(df["parcelas_abertas"], errors="coerce").fillna(0)
+    df = _limpar_compromissos_absurdos(
+        df,
+        gasto_total=gasto_total,
+        renda_mensal=renda_mensal
+    )
+
+    if df is None or df.empty:
+        resultado = _df_vazio()
+        resultado["qtd_compras"] = len(df_parcelamentos)
+        return resultado
 
     if "status" in df.columns:
         abertos = df[df["status"] == "ABERTO"].copy()
@@ -87,7 +239,7 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
         return resultado
 
     valor_restante_total = float(abertos["valor_restante"].sum())
-    valor_total_compras = float(df["valor_total_compra"].sum())
+    valor_total_compras = float(abertos["valor_total_compra"].sum())
     impacto_mensal = float(abertos["valor_parcela"].sum())
 
     base_referencia = renda_mensal if renda_mensal else gasto_total
@@ -116,14 +268,6 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
     maior_parcela_restantes = int(_valor_seguro(maior_parcela, "parcelas_abertas", 0))
 
     meses_estimados_comprometidos = int(abertos["parcelas_abertas"].max())
-
-    # ========================================================
-    # REGRA PROFISSIONAL
-    # 0% a 10%   = Saudável
-    # 10% a 20%  = Atenção
-    # 20% a 30%  = Alto
-    # acima 30% = Crítico
-    # ========================================================
 
     if impacto_mensal_percentual <= 10:
         nivel_risco = "🟢 Saudável"
@@ -181,6 +325,10 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
     }
 
 
+# ============================================================
+# TEXTOS
+# ============================================================
+
 def gerar_resumo_executivo_compromissos(resultado):
     if not resultado.get("tem_compromissos", False):
         return (
@@ -202,20 +350,22 @@ def gerar_resumo_executivo_compromissos(resultado):
     )
 
 
+# ============================================================
+# TABELAS TOP
+# ============================================================
+
 def gerar_top_compromissos(df_parcelamentos, top=5):
     if df_parcelamentos is None or df_parcelamentos.empty:
         return pd.DataFrame()
 
-    df = df_parcelamentos.copy()
+    df = _limpar_compromissos_absurdos(df_parcelamentos.copy())
+
+    if df is None or df.empty:
+        return pd.DataFrame()
 
     for col in ["compra", "valor_parcela", "parcelas_abertas", "valor_restante", "valor_total_compra", "status"]:
         if col not in df.columns:
             df[col] = 0 if col not in ["compra", "status"] else "-"
-
-    df["valor_restante"] = pd.to_numeric(df["valor_restante"], errors="coerce").fillna(0)
-    df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce").fillna(0)
-    df["valor_total_compra"] = pd.to_numeric(df["valor_total_compra"], errors="coerce").fillna(0)
-    df["parcelas_abertas"] = pd.to_numeric(df["parcelas_abertas"], errors="coerce").fillna(0).astype(int)
 
     df = df[df["valor_restante"] > 0].copy()
 
@@ -231,15 +381,14 @@ def gerar_top_impacto_mensal(df_parcelamentos, top=5):
     if df_parcelamentos is None or df_parcelamentos.empty:
         return pd.DataFrame()
 
-    df = df_parcelamentos.copy()
+    df = _limpar_compromissos_absurdos(df_parcelamentos.copy())
+
+    if df is None or df.empty:
+        return pd.DataFrame()
 
     for col in ["compra", "valor_parcela", "parcelas_abertas", "valor_restante", "status"]:
         if col not in df.columns:
             df[col] = 0 if col not in ["compra", "status"] else "-"
-
-    df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce").fillna(0)
-    df["valor_restante"] = pd.to_numeric(df["valor_restante"], errors="coerce").fillna(0)
-    df["parcelas_abertas"] = pd.to_numeric(df["parcelas_abertas"], errors="coerce").fillna(0).astype(int)
 
     df = df[df["valor_restante"] > 0].copy()
 
