@@ -1,15 +1,14 @@
 # ============================================================
 # TRANSACTION ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão corrigida — fonte única para parcelamentos
+# Versão corrigida final — transações normais + parcelamentos
 #
-# Correções estruturais:
-# - remove o leitor antigo de parcelamento em bloco da execução
-# - remove leitura sem data com valor da execução
-# - mantém block_reader como única fonte de parcelamentos
-# - mantém leitura linha a linha para compras normais
-# - evita duplicidade e inflação de parcelas futuras
-# - preserva colunas esperadas pelo restante do sistema
+# Corrige:
+# - gasto analisado zerado
+# - linhas de tabela com separador "|"
+# - PDF sintético/real com data, descrição e valor em formatos diferentes
+# - mantém block_reader como fonte de parcelamentos
+# - evita leitor antigo que inflava parcelas futuras
 # ============================================================
 
 import re
@@ -76,8 +75,15 @@ BLACKLIST = [
     "LIMITE", "VENCIMENTO", "FECHAMENTO", "MELHOR DIA",
     "PAGINA", "PÁGINA", "RESUMO", "FATURA",
     "SALDO", "CREDITO", "CRÉDITO", "ESTORNO",
-    "DATA | DESCRICAO | VALOR", "DATA | DESCRIÇÃO | VALOR",
-    "DATA DESCRICAO VALOR", "DATA DESCRIÇÃO VALOR",
+]
+
+CABECALHOS = [
+    "DATA DESCRICAO VALOR",
+    "DATA DESCRIÇÃO VALOR",
+    "DATA | DESCRICAO | VALOR",
+    "DATA | DESCRIÇÃO | VALOR",
+    "DESCRICAO VALOR",
+    "DESCRIÇÃO VALOR",
 ]
 
 
@@ -88,14 +94,14 @@ BLACKLIST = [
 PADRAO_DATA_VALOR = re.compile(
     r"(?P<data>\d{2}/\d{2}(?:/\d{4})?)\s+"
     r"(?P<descricao>.+?)\s+"
-    r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})$",
+    r"(?P<valor>R?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}|R?\$?\s*\d+,\d{2})$",
     re.IGNORECASE
 )
 
 PADRAO_EXTENSO_VALOR = re.compile(
     r"(?P<dia>\d{1,2})\s+DE\s+(?P<mes>[A-ZÇ]+)\.?\s+(?P<ano>\d{4})\s+"
     r"(?P<descricao>.+?)\s+"
-    r"(?P<valor>\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2})$",
+    r"(?P<valor>R?\$?\s*\d{1,3}(?:\.\d{3})*,\d{2}|R?\$?\s*\d+,\d{2})$",
     re.IGNORECASE
 )
 
@@ -104,7 +110,41 @@ PADRAO_VALOR = re.compile(
     re.IGNORECASE
 )
 
-PADRAO_DATA_CURTA = re.compile(r"\b\d{2}/\d{2}(?:/\d{4})?\b")
+PADRAO_DATA = re.compile(
+    r"\b(?P<data>\d{2}/\d{2}(?:/\d{4})?)\b",
+    re.IGNORECASE
+)
+
+PADRAO_PARC_EXPLICITA = re.compile(
+    r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*"
+    r"(?P<atual>\d{1,2})\s*(?:/|DE)\s*(?P<total>\d{1,2})\b",
+    re.IGNORECASE
+)
+
+PADRAO_NX_DE = re.compile(
+    r"(?P<qtd>\d{1,2})\s*X\s*(?:DE|POR)?\s*R?\$?\s*(?P<valor>[\d\.]+,\d{2})",
+    re.IGNORECASE
+)
+
+PADRAO_NX_SEM_JUROS = re.compile(
+    r"\b(?P<total>\d{1,2})\s*X\s*SEM\s*JUROS\b",
+    re.IGNORECASE
+)
+
+PADRAO_EM_NX = re.compile(
+    r"\bEM\s*(?P<total>\d{1,2})\s*X\b",
+    re.IGNORECASE
+)
+
+PADRAO_NX = re.compile(
+    r"\b(?P<total>\d{1,2})\s*X\b",
+    re.IGNORECASE
+)
+
+PADRAO_N_PARCELAS = re.compile(
+    r"\b(?P<total>\d{1,2})\s*(?:PARCELAS|PRESTACOES|PRESTAÇÕES)\b",
+    re.IGNORECASE
+)
 
 
 # ============================================================
@@ -124,37 +164,6 @@ def normalizar_texto(texto):
     texto = texto.upper()
     texto = re.sub(r"\s+", " ", texto)
     return texto.strip()
-
-
-def limpar_descricao(descricao):
-    if limpar_descricao_externa:
-        try:
-            return limpar_descricao_externa(descricao)
-        except Exception:
-            pass
-
-    descricao = str(descricao or "")
-    descricao = re.sub(r"R?\$?\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"R?\$?\s*\d+\.\d{2}", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", descricao)
-    descricao = re.sub(
-        r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*\d{1,2}\s*(?:/|DE)\s*\d{1,2}\b",
-        " ",
-        descricao,
-        flags=re.IGNORECASE
-    )
-    descricao = re.sub(r"\b\d{1,2}\s*X\b", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\bEM\s*\d{1,2}\s*X\b", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"\b\d{1,2}\s*PARCELAS\b", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"COMPRA PARCELADA", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"PARCELADO SEM JUROS", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"PARCELADO", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"SEM JUROS", " ", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"R\$", "", descricao, flags=re.IGNORECASE)
-    descricao = re.sub(r"[*|]+", " ", descricao)
-    descricao = re.sub(r"[-–—]+", " ", descricao)
-    descricao = re.sub(r"\s+", " ", descricao)
-    return descricao.strip(" -")
 
 
 def converter_valor(valor):
@@ -188,6 +197,37 @@ def converter_valor(valor):
         return float(texto)
     except Exception:
         return 0.0
+
+
+def limpar_descricao(descricao):
+    if limpar_descricao_externa:
+        try:
+            return limpar_descricao_externa(descricao)
+        except Exception:
+            pass
+
+    descricao = str(descricao or "")
+    descricao = re.sub(r"R?\$?\s*[\d\.]+,\d{2}", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"R?\$?\s*\d+\.\d{2}", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\b\d{2}/\d{2}(?:/\d{4})?\b", " ", descricao)
+    descricao = re.sub(
+        r"\b(?:PARC|PARC\.|PARCELA|PARCELADO|COMPRA\s+PARCELADA)\.?\s*\d{1,2}\s*(?:/|DE)\s*\d{1,2}\b",
+        " ",
+        descricao,
+        flags=re.IGNORECASE
+    )
+    descricao = re.sub(r"\b\d{1,2}\s*X\s*(?:SEM\s*JUROS)?\b", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\bEM\s*\d{1,2}\s*X\b", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"\b\d{1,2}\s*(?:PARCELAS|PRESTACOES|PRESTAÇÕES)\b", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"COMPRA PARCELADA", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"PARCELADO SEM JUROS", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"PARCELADO", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"SEM JUROS", " ", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"R\$", "", descricao, flags=re.IGNORECASE)
+    descricao = re.sub(r"[*|]+", " ", descricao)
+    descricao = re.sub(r"[-–—]+", " ", descricao)
+    descricao = re.sub(r"\s+", " ", descricao)
+    return descricao.strip(" -")
 
 
 def normalizar_merchant_local(texto):
@@ -232,10 +272,27 @@ def extrair_ano_arquivo(nome_arquivo):
 # VALIDAÇÕES
 # ============================================================
 
+def linha_cabecalho(linha):
+    texto = normalizar_texto(linha)
+    texto_sem_pipe = texto.replace("|", " ")
+    texto_sem_pipe = re.sub(r"\s+", " ", texto_sem_pipe)
+
+    for cab in CABECALHOS:
+        c = normalizar_texto(cab).replace("|", " ")
+        c = re.sub(r"\s+", " ", c)
+        if c in texto_sem_pipe:
+            return True
+
+    return False
+
+
 def linha_bloqueada(linha):
     texto = normalizar_texto(linha)
 
     if not texto:
+        return True
+
+    if linha_cabecalho(texto):
         return True
 
     for termo in BLACKLIST:
@@ -254,7 +311,7 @@ def linha_bloqueada(linha):
     if " - +" in texto or "+ R$" in texto or " + " in texto:
         return True
 
-    if len(texto) > 180:
+    if len(texto) > 200:
         return True
 
     if texto.count("*") >= 8:
@@ -281,7 +338,6 @@ def descricao_valida(descricao):
     if not re.search(r"[A-Z]", texto):
         return False
 
-    # Rejeita descrição agregada de tabela.
     if " DATA " in f" {texto} " and " VALOR " in f" {texto} ":
         return False
 
@@ -364,6 +420,54 @@ def calcular_score_local(
 
 
 # ============================================================
+# PARCELAMENTO
+# ============================================================
+
+def extrair_parcela_linha(linha):
+    texto = normalizar_texto(linha)
+
+    m = PADRAO_PARC_EXPLICITA.search(texto)
+    if m:
+        atual = int(m.group("atual"))
+        total = int(m.group("total"))
+        if 1 <= atual <= total <= 60:
+            return atual, total, 0.0, "PARCELA_EXPLICITA"
+
+    m = PADRAO_NX_DE.search(texto)
+    if m:
+        total = int(m.group("qtd"))
+        valor_parcela = converter_valor(m.group("valor"))
+        if 1 <= total <= 60 and valor_parcela > 0:
+            return 0, total, valor_parcela, "NX_DE_VALOR"
+
+    m = PADRAO_NX_SEM_JUROS.search(texto)
+    if m:
+        total = int(m.group("total"))
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "NX_SEM_JUROS"
+
+    m = PADRAO_EM_NX.search(texto)
+    if m:
+        total = int(m.group("total"))
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "EM_NX"
+
+    m = PADRAO_N_PARCELAS.search(texto)
+    if m:
+        total = int(m.group("total"))
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "N_PARCELAS"
+
+    m = PADRAO_NX.search(texto)
+    if m:
+        total = int(m.group("total"))
+        if 1 <= total <= 60:
+            return 0, total, 0.0, "NX"
+
+    return 0, 0, 0.0, ""
+
+
+# ============================================================
 # MONTAGEM
 # ============================================================
 
@@ -410,7 +514,6 @@ def montar_item(
         if parcelas_abertas <= 0:
             parcelas_abertas = max(total_parcelas - parcela_atual, 0)
 
-        # Travas de sanidade.
         if valor_parcela > 10000:
             return None
 
@@ -460,11 +563,59 @@ def montar_item(
 
 
 # ============================================================
-# EXTRAÇÃO LINHA A LINHA — COMPRAS NORMAIS
+# PRÉ-PROCESSAMENTO DE LINHAS
+# ============================================================
+
+def normalizar_linhas_tabela(texto):
+    """
+    Converte linhas com pipe ou tabela extraída em linhas analisáveis.
+    Mantém cada compra separada.
+    """
+    linhas_originais = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
+    linhas = []
+
+    for linha in linhas_originais:
+        linha_limpa = linha.strip()
+
+        if linha_cabecalho(linha_limpa):
+            continue
+
+        # Caso com pipe: 01/06 | DESCRICAO | R$ 100,00
+        if "|" in linha_limpa:
+            partes = [p.strip() for p in linha_limpa.split("|") if p.strip()]
+
+            data = None
+            valor = None
+            desc_partes = []
+
+            for parte in partes:
+                if data is None and PADRAO_DATA.search(parte):
+                    data = PADRAO_DATA.search(parte).group("data")
+                    continue
+
+                if valor is None and PADRAO_VALOR.search(parte):
+                    valor = PADRAO_VALOR.search(parte).group(1)
+                    continue
+
+                desc_partes.append(parte)
+
+            if data and valor and desc_partes:
+                linhas.append(f"{data} {' '.join(desc_partes)} {valor}")
+                continue
+
+        linhas.append(linha_limpa)
+
+    return linhas
+
+
+# ============================================================
+# EXTRAÇÃO LINHA A LINHA
 # ============================================================
 
 def extrair_linha_numerica(linha, arquivo):
-    m = PADRAO_DATA_VALOR.search(linha.strip())
+    linha = str(linha or "").strip()
+
+    m = PADRAO_DATA_VALOR.search(linha)
 
     if not m:
         return None
@@ -476,6 +627,10 @@ def extrair_linha_numerica(linha, arquivo):
     if len(data) == 5:
         data = f"{data}/{extrair_ano_arquivo(arquivo)}"
 
+    pa, pt, vp, tipo = extrair_parcela_linha(descricao_raw)
+    parcelado = pt > 0
+    parcelas_abertas = max(pt - pa, 0) if parcelado else 0
+
     return montar_item(
         arquivo=arquivo,
         data=data,
@@ -483,7 +638,12 @@ def extrair_linha_numerica(linha, arquivo):
         valor=valor,
         origem="data_valor",
         linha_original=linha,
-        parcelado=False,
+        parcelado=parcelado,
+        parcela_atual=pa,
+        total_parcelas=pt,
+        parcelas_abertas=parcelas_abertas,
+        valor_parcela=vp if vp > 0 else valor,
+        tipo_parcela=tipo,
     )
 
 
@@ -505,6 +665,10 @@ def extrair_linha_extenso(linha, arquivo):
     descricao_raw = m.group("descricao")
     valor = converter_valor(m.group("valor"))
 
+    pa, pt, vp, tipo = extrair_parcela_linha(descricao_raw)
+    parcelado = pt > 0
+    parcelas_abertas = max(pt - pa, 0) if parcelado else 0
+
     return montar_item(
         arquivo=arquivo,
         data=f"{dia}/{mes}/{ano}",
@@ -512,12 +676,17 @@ def extrair_linha_extenso(linha, arquivo):
         valor=valor,
         origem="data_extenso",
         linha_original=linha,
-        parcelado=False,
+        parcelado=parcelado,
+        parcela_atual=pa,
+        total_parcelas=pt,
+        parcelas_abertas=parcelas_abertas,
+        valor_parcela=vp if vp > 0 else valor,
+        tipo_parcela=tipo,
     )
 
 
 # ============================================================
-# EXTRAÇÃO DE PARCELAMENTOS — SOMENTE BLOCK_READER
+# EXTRAÇÃO COM BLOCK_READER
 # ============================================================
 
 def extrair_blocos_inteligentes(texto, arquivo_origem=""):
@@ -547,7 +716,6 @@ def extrair_blocos_inteligentes(texto, arquivo_origem=""):
         pt = int(item.get("total_parcelas", 0) or 0)
         vp = converter_valor(item.get("valor_parcela", 0))
 
-        # block_reader só entra como parcelamento se realmente for parcelado.
         if not parcelado or pt <= 0:
             continue
 
@@ -582,7 +750,7 @@ def extrair_blocos_inteligentes(texto, arquivo_origem=""):
 def extrair_transacoes_texto(texto, arquivo_origem=""):
     transacoes = []
 
-    # 1. Fonte única de parcelamentos
+    # 1. Block reader continua como reforço para blocos complexos de parcelamento
     transacoes.extend(
         extrair_blocos_inteligentes(
             texto=texto,
@@ -590,8 +758,8 @@ def extrair_transacoes_texto(texto, arquivo_origem=""):
         )
     )
 
-    # 2. Compras normais linha a linha
-    linhas = [l.strip() for l in str(texto or "").splitlines() if l.strip()]
+    # 2. Linha a linha — agora também identifica parcelas na própria linha
+    linhas = normalizar_linhas_tabela(texto)
 
     for linha in linhas:
         if linha_bloqueada(linha):
@@ -671,44 +839,28 @@ def processar_transacoes(documentos):
     df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce").fillna(0)
     df["confianca_extracao"] = pd.to_numeric(df["confianca_extracao"], errors="coerce").fillna(0).astype(int)
 
-    # Travas finais.
+    # Travas finais
     df = df[~((df["parcelado"] == True) & (df["total_parcelas"] <= 0))]
     df = df[df["parcela_atual"] <= df["total_parcelas"].where(df["parcelado"], 0)]
     df = df[~((df["parcelado"] == True) & (df["valor_parcela"] <= 0))]
     df = df[~((df["parcelado"] == True) & (df["valor_parcela"] > 10000))]
 
-    # Deduplicação profissional:
-    # para compras normais, ignora campos de parcelamento;
-    # para parceladas, usa estrutura de parcela.
-    df_normais = df[df["parcelado"] == False].copy()
-    df_parceladas = df[df["parcelado"] == True].copy()
+    # Deduplicação: se a mesma linha veio do block_reader e da linha normal,
+    # mantém o registro mais informativo.
+    df = df.sort_values(
+        ["parcelado", "confianca_extracao"],
+        ascending=[False, False]
+    )
 
-    if not df_normais.empty:
-        df_normais = df_normais.drop_duplicates(
-            subset=[
-                "arquivo_fatura",
-                "data",
-                "descricao_original",
-                "valor",
-            ]
-        )
-
-    if not df_parceladas.empty:
-        df_parceladas = df_parceladas.drop_duplicates(
-            subset=[
-                "arquivo_fatura",
-                "data",
-                "descricao_original",
-                "parcela_atual",
-                "total_parcelas",
-                "valor_parcela",
-            ]
-        )
-
-    df = pd.concat([df_normais, df_parceladas], ignore_index=True)
-
-    if df.empty:
-        return df
+    df = df.drop_duplicates(
+        subset=[
+            "arquivo_fatura",
+            "data",
+            "descricao_original",
+            "valor",
+        ],
+        keep="first"
+    )
 
     df = df.sort_values(["data", "descricao_original"]).reset_index(drop=True)
 
