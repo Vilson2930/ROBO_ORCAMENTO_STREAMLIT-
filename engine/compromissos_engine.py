@@ -317,18 +317,38 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
     valor_total_compras = float(abertos["valor_total_compra"].sum())
     impacto_mensal = float(abertos["valor_parcela"].sum())
 
-    base_referencia = renda_mensal if renda_mensal else gasto_total
+    # Referência segura:
+    # Se gasto_total/renda_mensal vier zerado, não classifica como saudável por engano.
+    try:
+        renda_ref = float(renda_mensal) if renda_mensal is not None else 0.0
+    except Exception:
+        renda_ref = 0.0
 
-    impacto_mensal_percentual = (
-        impacto_mensal / float(base_referencia) * 100
-        if base_referencia and float(base_referencia) > 0
-        else 0
+    try:
+        gasto_ref = float(gasto_total) if gasto_total is not None else 0.0
+    except Exception:
+        gasto_ref = 0.0
+
+    if renda_ref > 0:
+        base_referencia = renda_ref
+        referencia_valida = True
+    elif gasto_ref > 0:
+        base_referencia = gasto_ref
+        referencia_valida = True
+    else:
+        base_referencia = 0.0
+        referencia_valida = False
+
+    impacto_mensal_percentual_real = (
+        impacto_mensal / base_referencia * 100
+        if referencia_valida and base_referencia > 0
+        else None
     )
 
-    comprometimento_percentual = (
-        valor_restante_total / float(gasto_total) * 100
-        if gasto_total and float(gasto_total) > 0
-        else 0
+    comprometimento_percentual_real = (
+        valor_restante_total / gasto_ref * 100
+        if gasto_ref > 0
+        else None
     )
 
     maior_saldo = abertos.sort_values("valor_restante", ascending=False).iloc[0]
@@ -344,19 +364,28 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
 
     meses_estimados_comprometidos = int(abertos["parcelas_abertas"].max())
 
-    if impacto_mensal_percentual <= 10:
+    if impacto_mensal_percentual_real is None:
+        nivel_risco = "⚪ Sem referência"
+        classificacao = "SEM REFERÊNCIA"
+        pode_assumir = False
+        acao = (
+            "Não foi possível calcular o percentual porque a referência de gasto/renda veio zerada. "
+            "Revise o diagnóstico de gastos antes de classificar a capacidade."
+        )
+
+    elif impacto_mensal_percentual_real <= 10:
         nivel_risco = "🟢 Saudável"
         classificacao = "SAUDÁVEL"
         pode_assumir = True
         acao = "Seu nível de parcelas está controlado. Evite parcelar consumo recorrente."
 
-    elif impacto_mensal_percentual <= 20:
+    elif impacto_mensal_percentual_real <= 20:
         nivel_risco = "🟡 Atenção"
         classificacao = "ATENÇÃO"
         pode_assumir = False
         acao = "Evite novas parcelas até reduzir parte dos compromissos atuais."
 
-    elif impacto_mensal_percentual <= 30:
+    elif impacto_mensal_percentual_real <= 30:
         nivel_risco = "🟠 Alto"
         classificacao = "ALTO"
         pode_assumir = False
@@ -368,10 +397,16 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
         pode_assumir = False
         acao = "Não assuma novas parcelas. Reduza o impacto mensal antes de novas obrigações."
 
+    percentual_txt = (
+        f"{impacto_mensal_percentual_real:.1f}%"
+        if impacto_mensal_percentual_real is not None
+        else "não calculado"
+    )
+
     mensagem = (
         f"Você possui {moeda(valor_restante_total)} em parcelas futuras. "
         f"O impacto mensal estimado é de {moeda(impacto_mensal)}, equivalente a "
-        f"{impacto_mensal_percentual:.1f}% da referência analisada."
+        f"{percentual_txt} da referência analisada."
     )
 
     return {
@@ -382,8 +417,12 @@ def analisar_compromissos(df_parcelamentos, gasto_total=0, renda_mensal=None):
         "valor_restante_total": valor_restante_total,
         "valor_total_compras": valor_total_compras,
         "impacto_mensal": impacto_mensal,
-        "impacto_mensal_percentual": impacto_mensal_percentual,
-        "comprometimento_percentual": comprometimento_percentual,
+        "impacto_mensal_percentual": impacto_mensal_percentual_real if impacto_mensal_percentual_real is not None else 0,
+        "impacto_mensal_percentual_calculado": impacto_mensal_percentual_real is not None,
+        "comprometimento_percentual": comprometimento_percentual_real if comprometimento_percentual_real is not None else 0,
+        "comprometimento_percentual_calculado": comprometimento_percentual_real is not None,
+        "base_referencia": base_referencia,
+        "referencia_valida": referencia_valida,
         "maior_compromisso": maior_compromisso,
         "maior_valor_restante": maior_valor_restante,
         "maior_valor_parcela": maior_valor_parcela,
@@ -411,11 +450,17 @@ def gerar_resumo_executivo_compromissos(resultado):
             "Seu nível de compromissos futuros está saudável."
         )
 
+    percentual_txt = (
+        f"{resultado.get('impacto_mensal_percentual', 0):.1f}%"
+        if resultado.get("impacto_mensal_percentual_calculado", True)
+        else "não calculado"
+    )
+
     return (
         f"Foram identificados {resultado['qtd_abertos']} parcelamentos em aberto. "
         f"Você ainda possui {moeda(resultado['valor_restante_total'])} para pagar no futuro. "
         f"O impacto mensal estimado é de {moeda(resultado['impacto_mensal'])}, "
-        f"equivalente a {resultado['impacto_mensal_percentual']:.1f}% da referência analisada. "
+        f"equivalente a {percentual_txt} da referência analisada. "
         f"A maior parcela mensal é {resultado['maior_parcela_compra']} "
         f"({moeda(resultado['maior_parcela_valor'])}/mês). "
         f"O maior saldo restante é {resultado['maior_compromisso']} "
@@ -478,8 +523,15 @@ def gerar_top_impacto_mensal(df_parcelamentos, top=5):
 
 
 def gerar_texto_capacidade(resultado):
+    if resultado.get("impacto_mensal_percentual_calculado", True):
+        return (
+            f"O impacto mensal das parcelas é de {moeda(resultado.get('impacto_mensal', 0))}, "
+            f"equivalente a {resultado.get('impacto_mensal_percentual', 0):.1f}% da referência analisada. "
+            f"{resultado.get('acao', '')}"
+        )
+
     return (
         f"O impacto mensal das parcelas é de {moeda(resultado.get('impacto_mensal', 0))}, "
-        f"equivalente a {resultado.get('impacto_mensal_percentual', 0):.1f}% da referência analisada. "
+        "mas o percentual não foi calculado porque a referência de gasto/renda veio zerada. "
         f"{resultado.get('acao', '')}"
     )
