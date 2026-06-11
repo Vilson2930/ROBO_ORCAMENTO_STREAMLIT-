@@ -1,8 +1,10 @@
+```python
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
 # Versão blindada — lê somente compras parceladas reais
 # Bloqueia parcelamento de fatura, CET, IOF, rotativo e simulações
+# Compatível com app.py usando df_base
 # ============================================================
 
 import re
@@ -22,7 +24,10 @@ def normalizar_texto(texto):
 
 
 def converter_valor(valor):
-    return float(str(valor).replace(".", "").replace(",", "."))
+    try:
+        return float(str(valor).replace(".", "").replace(",", "."))
+    except Exception:
+        return 0.0
 
 
 def limpar_compra(texto):
@@ -160,14 +165,17 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
             continue
 
         atual, total = extrair_parcela_texto(linha_norm)
+
         if total <= 0:
             continue
 
         valor_parcela = extrair_valor_linha(linha)
+
         if valor_parcela <= 0:
             continue
 
         compra = limpar_compra(linha_norm)
+
         if not compra_valida(compra):
             continue
 
@@ -190,7 +198,7 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
     return registros
 
 
-def processar_parcelamentos(documentos):
+def processar_parcelamentos(documentos, df_base=None):
     todos = []
 
     for doc in documentos:
@@ -201,13 +209,49 @@ def processar_parcelamentos(documentos):
             )
         )
 
-    df = pd.DataFrame(todos)
+    colunas = [
+        "arquivo_fatura",
+        "compra",
+        "compra_key",
+        "ultima_parcela",
+        "total_parcelas",
+        "valor_parcela",
+        "parcelas_abertas",
+        "valor_restante",
+        "valor_total_compra",
+        "status",
+        "descricao_detectada",
+    ]
+
+    df = pd.DataFrame(todos, columns=colunas)
 
     if df.empty:
-        return df
+        return pd.DataFrame(columns=colunas)
+
+    df["valor_parcela"] = pd.to_numeric(df["valor_parcela"], errors="coerce")
+    df["parcelas_abertas"] = pd.to_numeric(df["parcelas_abertas"], errors="coerce")
+    df["valor_restante"] = pd.to_numeric(df["valor_restante"], errors="coerce")
+    df["valor_total_compra"] = pd.to_numeric(df["valor_total_compra"], errors="coerce")
+
+    df = df.dropna(
+        subset=[
+            "valor_parcela",
+            "parcelas_abertas",
+            "valor_restante",
+            "valor_total_compra",
+        ]
+    )
+
+    df = df[df["valor_parcela"] > 0]
 
     df = df.drop_duplicates(
-        subset=["compra_key", "ultima_parcela", "total_parcelas", "valor_parcela"]
+        subset=[
+            "arquivo_fatura",
+            "compra_key",
+            "ultima_parcela",
+            "total_parcelas",
+            "valor_parcela",
+        ]
     )
 
     df = df.sort_values(
@@ -220,6 +264,15 @@ def processar_parcelamentos(documentos):
 
 def resumo_parcelamentos(df):
     if df is None or df.empty:
+        return {
+            "quantidade": 0,
+            "valor_futuro": 0.0,
+            "impacto_mensal": 0.0,
+            "maior_parcela": 0.0,
+            "maior_compra": "-",
+        }
+
+    if "status" not in df.columns:
         return {
             "quantidade": 0,
             "valor_futuro": 0.0,
@@ -248,3 +301,4 @@ def resumo_parcelamentos(df):
         "maior_parcela": float(maior["valor_parcela"]),
         "maior_compra": str(maior["compra"]),
     }
+```
