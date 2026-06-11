@@ -1,9 +1,11 @@
 # ============================================================
 # PARCELAMENTO ENGINE
 # ORÇAMENTO INTELIGENTE
-# Versão blindada — aceita df_base e não quebra o app
+# Versão blindada 100%
 # Lê somente COMPRAS PARCELADAS reais
-# Bloqueia parcelamento de fatura, CET, IOF, rotativo, simulações e anuidade
+# Bloqueia anuidade, rotativo, CET, IOF, juros, multa,
+# mora, parcelamento de fatura, pagamentos e simulações
+# Aceita df_base sem quebrar o app
 # ============================================================
 
 import re
@@ -15,7 +17,8 @@ def normalizar_texto(texto):
     texto = str(texto or "")
     texto = unicodedata.normalize("NFKD", texto)
     texto = "".join(c for c in texto if not unicodedata.combining(c))
-    texto = texto.upper().replace("ª", "A").replace("º", "O")
+    texto = texto.upper()
+    texto = texto.replace("ª", "A").replace("º", "O")
     texto = re.sub(r"\s+", " ", texto)
     return texto.strip()
 
@@ -27,32 +30,75 @@ def converter_valor(valor):
         return 0.0
 
 
-def linha_administrativa(linha):
+BLOQUEIOS_GERAIS = [
+    "ANUIDADE",
+    "ANUIDADE DIFERENCIADA",
+    "VALOR TOTAL",
+    "TOTAL DA FATURA",
+    "TOTAL A PAGAR",
+    "TOTAL FINAL",
+    "TOTAL COMPRAS",
+    "PAGAMENTO",
+    "OBRIGADO PELO PAGAMENTO",
+    "CREDITO",
+    "CRÉDITO",
+    "AJUSTE",
+    "ESTORNO",
+    "LIMITE",
+    "VENCIMENTO",
+    "ROTATIVO",
+    "ATRASO",
+    "IOF",
+    "CET",
+    "JUROS",
+    "MULTA",
+    "MORA",
+    "PARCELAMENTO DE FATURA",
+    "PARCELE A SUA FATURA",
+    "OPCOES PARA PAGAMENTO",
+    "OPÇÕES PARA PAGAMENTO",
+    "QTD",
+    "1A PARCELA",
+    "1ª PARCELA",
+    "DEMAIS PARCELAS",
+    "JUROS EFETIVOS",
+    "TOTAL DAS PARCELAS",
+    "TOTAL DEVIDO",
+    "SIMULAR",
+    "ESCOLHA",
+    "VALOR ORIGINAL",
+    "COTACAO",
+    "COTAÇÃO",
+    "DATA DESCRICAO",
+    "DATA DESCRIÇÃO",
+    "CIDADE/PAIS",
+    "CIDADE/PAÍS",
+    "CREDITO/DEBITO",
+    "CRÉDITO/DÉBITO",
+    "LEGENDA",
+    "APP CARTOES",
+    "APP CARTÕES",
+    "CENTRAL DE ATENDIMENTO",
+    "INFORMACOES COMPLEMENTARES",
+    "INFORMAÇÕES COMPLEMENTARES",
+    "OPERACAO CONTRATADA",
+    "OPERAÇÃO CONTRATADA",
+]
+
+
+def linha_bloqueada(linha):
     t = normalizar_texto(linha)
 
-    bloqueios = [
-        "VALOR TOTAL", "TOTAL DA FATURA", "TOTAL A PAGAR", "TOTAL FINAL",
-        "TOTAL COMPRAS", "PAGAMENTO", "OBRIGADO PELO PAGAMENTO",
-        "CREDITO", "AJUSTE", "ESTORNO", "LIMITE", "VENCIMENTO",
-        "ROTATIVO", "IOF", "CET", "JUROS", "MULTA", "MORA",
-        "PARCELAMENTO DE FATURA", "PARCELE A SUA FATURA",
-        "OPCOES PARA PAGAMENTO", "OPÇÕES PARA PAGAMENTO",
-        "QTD", "1A PARCELA", "DEMAIS PARCELAS", "JUROS EFETIVOS",
-        "TOTAL DAS PARCELAS", "TOTAL DEVIDO", "SIMULAR", "ESCOLHA",
-        "VALOR ORIGINAL", "COTACAO", "COTAÇÃO", "DATA DESCRICAO",
-        "CIDADE/PAIS", "CREDITO/DEBITO", "LEGENDA", "APP CARTOES",
-        "CENTRAL DE ATENDIMENTO", "INFORMACOES COMPLEMENTARES",
-        "OPERACAO CONTRATADA", "OPERAÇÃO CONTRATADA",
-        "ANUIDADE", "ANUIDADE DIFERENCIADA"
-    ]
-
-    if any(b in t for b in bloqueios):
+    if any(b in t for b in BLOQUEIOS_GERAIS):
         return True
 
     if "%" in t:
         return True
 
     if re.search(r"\b\d{1,2}X\s+R\$", t):
+        return True
+
+    if len(re.findall(r"R\$", t)) >= 2:
         return True
 
     return False
@@ -80,17 +126,22 @@ def extrair_parcela_texto(linha):
 
 def extrair_valor_linha(linha):
     valores = re.findall(r"(\d{1,3}(?:\.\d{3})*,\d{2})D?", str(linha))
-    return converter_valor(valores[-1]) if valores else 0.0
+    if not valores:
+        return 0.0
+    return converter_valor(valores[-1])
 
 
 def limpar_compra(linha):
     t = normalizar_texto(linha)
+
     t = re.sub(r"^\d{2}/\d{2}\s+", "", t)
     t = re.sub(r"\b\d{1,2}\s+DE\s+\d{1,2}\b", "", t)
     t = re.sub(r"\bPARCELA\s*\d{1,2}/\d{1,2}\b", "", t)
     t = re.sub(r"\b\d{1,2}/\d{1,2}\b", "", t)
     t = re.sub(r"\d{1,3}(?:\.\d{3})*,\d{2}D?$", "", t)
+    t = re.sub(r"\bD$", "", t)
     t = re.sub(r"\s+", " ", t)
+
     return t.strip(" -")
 
 
@@ -107,7 +158,7 @@ def compra_valida(compra):
     if len(t) < 3 or len(t) > 90:
         return False
 
-    if linha_administrativa(t):
+    if linha_bloqueada(t):
         return False
 
     if "%" in t or "R$" in t:
@@ -131,7 +182,7 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
             dentro = True
             continue
 
-        if any(x in ln for x in [
+        if any(fim in ln for fim in [
             "TOTAL COMPRAS PARCELADAS",
             "OUTROS (",
             "TOTAL FINAL",
@@ -148,7 +199,7 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
         if not dentro:
             continue
 
-        if linha_administrativa(ln):
+        if linha_bloqueada(ln):
             continue
 
         atual, total = extrair_parcela_texto(ln)
@@ -160,6 +211,7 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
             continue
 
         compra = limpar_compra(linha)
+
         if not compra_valida(compra):
             continue
 
@@ -171,7 +223,7 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
             "compra_key": chave_compra(compra),
             "ultima_parcela": atual,
             "total_parcelas": total,
-            "valor_parcela": valor_parcela,
+            "valor_parcela": round(valor_parcela, 2),
             "parcelas_abertas": parcelas_abertas,
             "valor_restante": round(parcelas_abertas * valor_parcela, 2),
             "valor_total_compra": round(total * valor_parcela, 2),
@@ -185,7 +237,7 @@ def extrair_parcelamentos_documento(texto, arquivo=""):
 def processar_parcelamentos(documentos, df_base=None, *args, **kwargs):
     todos = []
 
-    for doc in documentos:
+    for doc in documentos or []:
         todos.extend(
             extrair_parcelamentos_documento(
                 texto=doc.get("texto", ""),
@@ -194,10 +246,17 @@ def processar_parcelamentos(documentos, df_base=None, *args, **kwargs):
         )
 
     colunas = [
-        "arquivo_fatura", "compra", "compra_key", "ultima_parcela",
-        "total_parcelas", "valor_parcela", "parcelas_abertas",
-        "valor_restante", "valor_total_compra", "status",
-        "descricao_detectada"
+        "arquivo_fatura",
+        "compra",
+        "compra_key",
+        "ultima_parcela",
+        "total_parcelas",
+        "valor_parcela",
+        "parcelas_abertas",
+        "valor_restante",
+        "valor_total_compra",
+        "status",
+        "descricao_detectada",
     ]
 
     df = pd.DataFrame(todos, columns=colunas)
@@ -206,17 +265,41 @@ def processar_parcelamentos(documentos, df_base=None, *args, **kwargs):
         return df
 
     for c in [
-        "ultima_parcela", "total_parcelas", "valor_parcela",
-        "parcelas_abertas", "valor_restante", "valor_total_compra"
+        "ultima_parcela",
+        "total_parcelas",
+        "valor_parcela",
+        "parcelas_abertas",
+        "valor_restante",
+        "valor_total_compra",
     ]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    df = df.dropna(subset=["compra_key", "valor_parcela", "ultima_parcela", "total_parcelas"])
-    df = df[df["valor_parcela"] > 0]
+    df = df.dropna(
+        subset=[
+            "compra_key",
+            "valor_parcela",
+            "ultima_parcela",
+            "total_parcelas",
+        ]
+    )
 
-    df = df[df["compra"].apply(compra_valida)]
+    df = df[df["valor_parcela"] > 0].copy()
 
-    df = df.sort_values(["compra_key", "ultima_parcela"], ascending=[True, False])
+    # Blindagem final contra lixo administrativo
+    regex_bloqueio = "|".join([re.escape(b) for b in BLOQUEIOS_GERAIS])
+
+    df = df[
+        ~df["compra"]
+        .fillna("")
+        .apply(normalizar_texto)
+        .str.contains(regex_bloqueio, regex=True, na=False)
+    ].copy()
+
+    # Mantém apenas a parcela mais recente de cada compra
+    df = df.sort_values(
+        ["compra_key", "ultima_parcela"],
+        ascending=[True, False]
+    )
 
     df = df.drop_duplicates(
         subset=["compra_key", "total_parcelas", "valor_parcela"],
