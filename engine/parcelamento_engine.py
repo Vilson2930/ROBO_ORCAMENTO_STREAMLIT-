@@ -3,7 +3,7 @@
 # ORÇAMENTO INTELIGENTE
 # Versão blindada — aceita df_base e não quebra o app
 # Lê somente COMPRAS PARCELADAS reais
-# Bloqueia parcelamento de fatura, CET, IOF, rotativo e simulações
+# Bloqueia parcelamento de fatura, CET, IOF, rotativo, simulações e anuidade
 # ============================================================
 
 import re
@@ -43,6 +43,7 @@ def linha_administrativa(linha):
         "CIDADE/PAIS", "CREDITO/DEBITO", "LEGENDA", "APP CARTOES",
         "CENTRAL DE ATENDIMENTO", "INFORMACOES COMPLEMENTARES",
         "OPERACAO CONTRATADA", "OPERAÇÃO CONTRATADA",
+        "ANUIDADE", "ANUIDADE DIFERENCIADA"
     ]
 
     if any(b in t for b in bloqueios):
@@ -204,17 +205,28 @@ def processar_parcelamentos(documentos, df_base=None, *args, **kwargs):
     if df.empty:
         return df
 
-    for c in ["ultima_parcela", "total_parcelas", "valor_parcela", "parcelas_abertas", "valor_restante", "valor_total_compra"]:
+    for c in [
+        "ultima_parcela", "total_parcelas", "valor_parcela",
+        "parcelas_abertas", "valor_restante", "valor_total_compra"
+    ]:
         df[c] = pd.to_numeric(df[c], errors="coerce")
 
     df = df.dropna(subset=["compra_key", "valor_parcela", "ultima_parcela", "total_parcelas"])
     df = df[df["valor_parcela"] > 0]
 
-    # Deduplica histórico: mantém a parcela mais recente de cada compra
-    df = df.sort_values(["compra_key", "ultima_parcela"], ascending=[True, False])
-    df = df.drop_duplicates(subset=["compra_key", "total_parcelas", "valor_parcela"], keep="first")
+    df = df[df["compra"].apply(compra_valida)]
 
-    df = df.sort_values(["valor_restante", "valor_parcela"], ascending=False).reset_index(drop=True)
+    df = df.sort_values(["compra_key", "ultima_parcela"], ascending=[True, False])
+
+    df = df.drop_duplicates(
+        subset=["compra_key", "total_parcelas", "valor_parcela"],
+        keep="first"
+    )
+
+    df = df.sort_values(
+        ["valor_restante", "valor_parcela"],
+        ascending=False
+    ).reset_index(drop=True)
 
     return df
 
@@ -244,8 +256,8 @@ def resumo_parcelamentos(df):
 
     return {
         "quantidade": int(len(abertos)),
-        "valor_futuro": float(abertos["valor_restante"].sum()),
-        "impacto_mensal": float(abertos["valor_parcela"].sum()),
-        "maior_parcela": float(maior["valor_parcela"]),
+        "valor_futuro": round(float(abertos["valor_restante"].sum()), 2),
+        "impacto_mensal": round(float(abertos["valor_parcela"].sum()), 2),
+        "maior_parcela": round(float(maior["valor_parcela"]), 2),
         "maior_compra": str(maior["compra"]),
     }
